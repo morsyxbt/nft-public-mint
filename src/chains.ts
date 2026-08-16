@@ -35,6 +35,10 @@ export const CHAINS: ChainProfile[] = [
         "https://ethereum-rpc.publicnode.com",
         "https://eth.merkle.io",
         "https://cloudflare-eth.com",
+        // Flashbots Protect — private mempool. Txs sent here never hit the public
+        // mempool; builders include them in bundles. Critical for contested mints
+        // (no sandwich/outbid race on your own tx). Supports standard RPC.
+        "https://rpc.flashbots.net",
       ],
     },
   },
