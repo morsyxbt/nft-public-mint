@@ -161,7 +161,8 @@ export async function runWizard(): Promise<void> {
 
   const maxFeePerGas = gweiToWei(maxFeeGwei);
   const maxPriorityFee = gweiToWei(priorityGwei);
-  const gasLimit = parseInt(process.env.GAS_LIMIT || "0", 10) || 250_000;
+  // Dynamic gas estimation: uses SeaDrop scaling formula, falls back to env or 250k.
+  const gasLimit = parseInt(process.env.GAS_LIMIT || "0", 10) || estimateSeaDropGas(quantity);
 
   // ── 8. Timing ─────────────────────────────────────────────────────────
   const { targetStart, timingLabel } = await promptTiming(drop.startTime);
@@ -480,6 +481,17 @@ async function currentBaseFeeGwei(provider: JsonRpcProvider): Promise<number | n
   } catch {
     return null;
   }
+}
+
+// SeaDrop mintPublic() gas usage scales with quantity. Observable pattern from
+// OpenSea's SeaDrop.sol: base ~77k + ~58k per extra unit. Give headroom (×1.35)
+// so we never revert on gas, but don't over-commit the wallet reservation
+// (nodes reserve gasLimit × maxFee upfront).
+export function estimateSeaDropGas(quantity: number): number {
+  const base = 77_000;
+  const perUnit = 58_000;
+  if (quantity <= 1) return Math.ceil(base * 1.35);
+  return Math.ceil((base + perUnit * (quantity - 1)) * 1.35);
 }
 
 function gweiToWei(gwei: number): bigint {

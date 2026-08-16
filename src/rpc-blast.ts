@@ -161,3 +161,49 @@ export async function waitForReceipt(
 
   return null;
 }
+
+// Query a tx's current mempool state (null = not seen / already mined).
+export async function probeTxStatus(
+  txHash: string,
+  rpcUrl: string,
+  timeoutMs = 8000
+): Promise<"pending" | "mined" | "unknown" | "dropped"> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(rpcUrl, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        method: "eth_getTransactionByHash",
+        params: [txHash],
+        id: 1,
+      }),
+      signal: controller.signal,
+    });
+    const json = (await res.json()) as any;
+    const tx = json.result;
+    if (!tx) {
+      // Receipt exists → mined; otherwise likely dropped from mempool.
+      const rec = await fetch(rpcUrl, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          method: "eth_getTransactionReceipt",
+          params: [txHash],
+          id: 1,
+        }),
+      });
+      const recJson = (await rec.json()) as any;
+      return recJson.result ? "mined" : "dropped";
+    }
+    if (tx.blockNumber) return "mined";
+    return "pending";
+  } catch {
+    return "unknown";
+  } finally {
+    clearTimeout(timer);
+  }
+}
