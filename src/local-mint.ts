@@ -14,6 +14,7 @@ import { warmConnections } from "./connection-warmer";
 import { waitForMintTime } from "./timer";
 import { explorerTx } from "./chains";
 import { LocalMintPlan } from "./seadrop-public";
+import { appendBaseBuilderCode } from "./builder-code";
 
 export interface LocalSnipeOpts {
   nftContract: string;
@@ -56,6 +57,7 @@ export async function localPublicSnipe(opts: LocalSnipeOpts): Promise<void> {
     provider.getNetwork(),
   ]);
   const chainId = network.chainId;
+  const transactionData = appendBaseBuilderCode(plan.data, chainId);
   console.log(chalk.gray(`  Nonces: [${nonces.join(", ")}] | chainId: ${chainId}`));
 
   // ── Sign everything now, well before the stage opens ──
@@ -65,7 +67,7 @@ export async function localPublicSnipe(opts: LocalSnipeOpts): Promise<void> {
   for (let i = 0; i < wallets.length; i++) {
     const rawTx = await wallets[i].signTransaction({
       to: plan.to,
-      data: plan.data,
+      data: transactionData,
       value: plan.value,
       nonce: nonces[i],
       maxFeePerGas,

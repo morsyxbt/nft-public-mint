@@ -9,7 +9,8 @@
   "scripts": {
     "build": "tsc",
     "start": "node dist/index.js",
-    "dev": "ts-node src/index.ts"
+    "dev": "ts-node src/index.ts",
+    "test": "npm run build && node --test test/builder-code.test.js"
   },
   "keywords": [
     "nft",
@@ -25,7 +26,8 @@
     "chalk": "^4.1.2",
     "dotenv": "^16.3.1",
     "ethers": "^6.9.0",
-    "ora": "^5.4.1"
+    "ora": "^5.4.1",
+    "ox": "^0.14.34"
   },
   "devDependencies": {
     "@types/node": "^20.10.0",
