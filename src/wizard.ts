@@ -390,10 +390,10 @@ async function promptRpc(profile: ChainProfile): Promise<string[]> {
   const fromEnv = privateRpcsFromEnv(profile.key);
   if (fromEnv.length > 0) {
     console.log(chalk.gray(`  .env already has: ${fromEnv.map(maskRpc).join(", ")}`));
-    console.log(chalk.gray("  Blank = keep the .env value."));
-  } else {
-    console.log(chalk.yellow(`  Nothing in .env for ${profile.name}. Blank = public nodes only.`));
+    console.log(chalk.green(`  ✓ Using .env RPC${fromEnv.length > 1 ? "s" : ""} — skipping prompt.`));
+    return fromEnv;
   }
+  console.log(chalk.yellow(`  Nothing in .env for ${profile.name}. Blank = public nodes only.`));
 
   for (;;) {
     const raw = await askText(`RPC for ${profile.name}`);
