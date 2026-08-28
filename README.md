@@ -190,3 +190,8 @@ from on-chain data, which is the whole premise of this tool.
 ## License
 
 MIT
+
+ - 29/08/2026, 02:00 AM → fires 29/8/2026 02:00 IST                                                                                                                                                                                                                           
+ - tomorrow 03:30 → tomorrow at 03:30 IST                                                                                                                                                                                                                                     
+ - 29/8 14:30 → 29/8 14:30 IST                                                                                                                                                                                                                                                
+ - 02:00 → today (unchanged) 

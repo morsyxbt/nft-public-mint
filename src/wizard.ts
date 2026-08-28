@@ -22,11 +22,16 @@ import {
 import { parseRpcEndpoints } from "./rpc-blast";
 import { buildLocalMintPlan, LocalMintPlan } from "./seadrop-public";
 import { localPublicSnipe } from "./local-mint";
-import { istTimeToDate, toIST } from "./time-format";
+import { parseFireTime, toIST } from "./time-format";
+import { syncClock, nowMs } from "./clock";
 import { askChoice, askHidden, askNumber, askText, askYesNo, closePrompts } from "./prompt";
 
 export async function runWizard(): Promise<void> {
   printBanner();
+
+  // Correct the machine clock against public time sources up front so every
+  // countdown and the actual fire instant use true time, not a drifting clock.
+  await syncClock();
 
   // ── 1. Private keys ───────────────────────────────────────────────────
   const walletKeys = await resolveWalletKeys();
@@ -104,7 +109,7 @@ export async function runWizard(): Promise<void> {
   const drop = mintPlan.drop;
   const startsAt = new Date(drop.startTime * 1000);
   const endsAt = new Date(drop.endTime * 1000);
-  const live = Date.now() >= startsAt.getTime() && Date.now() < endsAt.getTime();
+  const live = nowMs() >= startsAt.getTime() && nowMs() < endsAt.getTime();
 
   console.log(chalk.green("  ✓ Built calldata from on-chain SeaDrop — no OpenSea token needed"));
   console.log(chalk.gray(`    Fee recipient: ${mintPlan.feeRecipient}`));
@@ -116,7 +121,7 @@ export async function runWizard(): Promise<void> {
   console.log(chalk.gray(`    Max per wallet: ${drop.maxTotalMintableByWallet || "unlimited"}`));
   console.log(
     chalk.gray(
-      `    Window:        ${toIST(startsAt)} → ${toIST(endsAt)} IST  ${live ? chalk.green("(live)") : chalk.yellow(`(opens in ${formatRemaining(startsAt.getTime() - Date.now())})`)}`
+      `    Window:        ${toIST(startsAt)} → ${toIST(endsAt)} IST  ${live ? chalk.green("(live)") : chalk.yellow(`(opens in ${formatRemaining(startsAt.getTime() - nowMs())})`)}`
     )
   );
 
@@ -125,7 +130,7 @@ export async function runWizard(): Promise<void> {
       chalk.yellow(`  ⚠ This drop allows only ${drop.maxTotalMintableByWallet} per wallet — ${quantity} will revert.`)
     );
   }
-  if (Date.now() >= endsAt.getTime()) {
+  if (nowMs() >= endsAt.getTime()) {
     console.log(chalk.yellow("  ⚠ This public stage has already ended on-chain."));
   }
 
@@ -191,7 +196,7 @@ export async function runWizard(): Promise<void> {
   if (shortWallets.length > 0) {
     console.log(
       chalk.gray(
-        `\n  Nodes require gasLimit × maxFee${mintPlan.value > 0n ? " + mint price" : ""} = ${formatEther(required)} ${symbol} held per wallet.`
+        `\n  Nodes reserve gasLimit × maxFee${mintPlan.value > 0n ? " + mint price" : ""} = ${formatEther(required)} ${symbol} per wallet upfront.`
       )
     );
     const poorest = balances
@@ -200,13 +205,12 @@ export async function runWizard(): Promise<void> {
     const affordable = Number((poorest - mintPlan.value) / BigInt(gasLimit)) / 1e9;
     if (affordable > 0) {
       console.log(
-        chalk.yellow(`  Either fund the wallets, or re-run with a max fee at or below ${affordable.toFixed(4)} gwei.`)
+        chalk.yellow(`  Tip: a max fee at or below ${affordable.toFixed(4)} gwei would avoid the reserve shortfall.`)
       );
     }
-    if (shortWallets.length === wallets.length) {
-      throw new Error("Every wallet is underfunded — nothing could be broadcast.");
-    }
-    console.log(chalk.yellow("  The remaining wallet(s) can still fire."));
+    // Balance check is advisory only — underfunded wallets still broadcast and
+    // nodes reject per-tx, so we warn instead of aborting the whole run.
+    console.log(chalk.yellow("  ⚠ Balance check bypassed — proceeding to fire."));
   }
 
   // ── 10. Confirm ───────────────────────────────────────────────────────
@@ -421,32 +425,23 @@ async function promptRpc(profile: ChainProfile): Promise<string[]> {
 async function promptTiming(
   startTime: number
 ): Promise<{ targetStart: Date | null; timingLabel: string }> {
-  const startsInFuture = startTime * 1000 > Date.now();
   const at = new Date(startTime * 1000);
-
-  const choices: { label: string; value: "wait" | "now" | "custom"; hint?: string }[] = [];
-  if (startsInFuture) {
-    // Firing before the on-chain start reverts with NotActive, so it isn't
-    // offered at all once a future start time is known.
-    choices.push({
-      label: "Wait for the stage",
-      value: "wait",
-      hint: `${toIST(at)} IST · in ${formatRemaining(at.getTime() - Date.now())} · fires at T-0`,
-    });
-  } else {
-    choices.push({ label: "Fire now", value: "now", hint: "stage is already live" });
-  }
-  choices.push({ label: "Custom time", value: "custom", hint: "HH:MM, 24-hour IST, today" });
-
-  const pick = await askChoice("When should it fire?", choices, 0);
-
-  if (pick === "wait") return { targetStart: at, timingLabel: `wait for stage — ${toIST(at)} IST` };
-  if (pick === "now") return { targetStart: null, timingLabel: "fire immediately" };
+  // Default = on-chain start in IST, parseable by the fire-time parser, so a
+  // bare Enter waits for the stage. "now" fires immediately.
+  const ist = new Date(at.getTime() + 330 * 60000);
+  const def = `${ist.getUTCDate()}/${ist.getUTCMonth() + 1}/${ist.getUTCFullYear()} ${String(
+    ist.getUTCHours()
+  ).padStart(2, "0")}:${String(ist.getUTCMinutes()).padStart(2, "0")}`;
 
   for (;;) {
-    const raw = await askText("Time (HH:MM, 24-hour IST)");
+    const raw = await askText(
+      `Fire time (e.g. 'August 29 at 2:00 AM GMT+7'; Enter = stage start ${toIST(at)} IST; 'now' = fire immediately)`,
+      def
+    );
+    const trimmed = raw.trim().toLowerCase();
+    if (trimmed === "now") return { targetStart: null, timingLabel: "fire immediately" };
     try {
-      const custom = istTimeToDate(raw);
+      const custom = parseFireTime(raw);
       if (custom.getTime() < startTime * 1000) {
         console.log(chalk.bold.red(`  ✗ That is before the stage opens (${toIST(at)} IST) — it will revert.`));
         if (!(await askYesNo("Use it anyway?", false))) continue;
