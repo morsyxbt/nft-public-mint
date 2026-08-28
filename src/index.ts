@@ -19,7 +19,10 @@ Usage
   npm start              run the interactive wizard
   npm start -- --help    show this message
 
-Everything is asked interactively: keys, chain, quantity, NFT link, RPC,
+Wallets are loaded from wallets.json in the current folder if it exists.
+Format: ["0xabc...", "0xdef..."]
+
+Everything else is asked interactively: chain, quantity, NFT link, RPC,
 gas and timing. Optional defaults can be set in .env (see .env.example).
 `;
 

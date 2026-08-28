@@ -9,5 +9,6 @@ dist/
 
 # Private keys — never commit
 wallets/
+wallets.json
 keys.txt
 *.key

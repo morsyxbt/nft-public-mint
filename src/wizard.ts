@@ -6,6 +6,7 @@
 //
 // Nothing is written to disk: pasted keys live in memory for the run only.
 
+import path from "path";
 import chalk from "chalk";
 import { JsonRpcProvider, Wallet, formatEther, getAddress, isAddress } from "ethers";
 import { CHAINS, ChainProfile, resolveChain } from "./chains";
@@ -28,7 +29,7 @@ export async function runWizard(): Promise<void> {
   printBanner();
 
   // ── 1. Private keys ───────────────────────────────────────────────────
-  const walletKeys = await promptKeys();
+  const walletKeys = await resolveWalletKeys();
 
   // ── 2. Chain ──────────────────────────────────────────────────────────
   let chainKey = await askChoice<string>(
@@ -459,6 +460,53 @@ async function promptTiming(
 
 // ── Helpers ─────────────────────────────────────────────────────────────
 
+async function loadWalletsFromFile(path: string): Promise<string[]> {
+  const fs = await import("fs/promises");
+  const raw = await fs.readFile(path, "utf8");
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (err: any) {
+    throw new Error(`Cannot parse ${path} as JSON: ${err.message}`);
+  }
+  if (!Array.isArray(parsed)) {
+    throw new Error(`Expected JSON array of private keys in ${path}`);
+  }
+
+  const keys: string[] = [];
+  const seen = new Set<string>();
+
+  for (let i = 0; i < parsed.length; i++) {
+    const rawKey = String(parsed[i]).trim();
+    if (!rawKey) continue;
+
+    const normalized = rawKey.startsWith("0x") ? rawKey : `0x${rawKey}`;
+    let wallet: Wallet;
+    try {
+      wallet = new Wallet(normalized);
+    } catch {
+      throw new Error(`Invalid private key at index ${i} in ${path}`);
+    }
+
+    const addr = wallet.address.toLowerCase();
+    if (seen.has(addr)) {
+      console.log(chalk.yellow(`  ⚠ Duplicate ${short(wallet.address)} skipped`));
+      continue;
+    }
+    seen.add(addr);
+    keys.push(normalized);
+    console.log(chalk.green(`  ✓ [W${keys.length - 1}] ${wallet.address}`));
+  }
+
+  if (keys.length === 0) {
+    throw new Error(`No valid private keys found in ${path}`);
+  }
+
+  console.log(chalk.gray(`  ${keys.length} wallet(s) loaded from ${path}`));
+  return keys;
+}
+
+
 // Accept an address in any case — explorer copy-pastes arrive case-mangled and
 // hard-failing is worse. A mixed-case string failing EIP-55 is the typo signal.
 function normalizeAddress(raw: string): { address: string; checksumWarning: boolean } | null {
@@ -517,4 +565,21 @@ function printBanner(): void {
 ╚═══════════════════════════════════════╝`)
   );
   console.log(chalk.gray("  Public SeaDrop stages only. Ctrl+C to quit at any point.\n"));
+}
+
+// ── JSON wallet loader ─────────────────────────────────────────────────
+
+async function resolveWalletKeys(): Promise<string[]> {
+  const fs = await import("fs/promises");
+  const cwd = process.cwd();
+  const walletsPath = path.resolve(cwd, "wallets.json");
+
+  try {
+    await fs.access(walletsPath);
+    console.log(chalk.gray(`  Found wallets.json in ${cwd}`));
+    return await loadWalletsFromFile(walletsPath);
+  } catch {
+    console.log(chalk.gray("  No wallets.json found — enter keys interactively."));
+    return await promptKeys();
+  }
 }
