@@ -1,4 +1,4 @@
-import chalk from "chalk";
+import { info, warn } from "./logger";
 
 // The machine clock may drift or be plain wrong. Mint timing is absolute, so a
 // skewed clock fires late or early regardless of how carefully the target is
@@ -65,7 +65,7 @@ export async function syncClock(toleranceMs = 2000): Promise<void> {
 
   if (results.length === 0) {
     skewMs = 0;
-    console.log(chalk.yellow("[WARN] Time source unreachable — using system clock unadjusted."));
+    warn("Time source unreachable — using system clock unadjusted.");
     return;
   }
 
@@ -75,9 +75,9 @@ export async function syncClock(toleranceMs = 2000): Promise<void> {
 
   const secs = median / 1000;
   if (Math.abs(median) > toleranceMs) {
-    console.log(chalk.yellow(`[WARN] System clock off by ${secs.toFixed(1)}s — applying correction.`));
+    warn(`System clock off by ${secs.toFixed(1)}s — applying correction.`);
   } else {
-    console.log(chalk.gray(`[INFO] Clock skew ${secs.toFixed(2)}s — within tolerance.`));
+    info(`Clock skew ${secs.toFixed(2)}s — within tolerance.`);
   }
 }
 

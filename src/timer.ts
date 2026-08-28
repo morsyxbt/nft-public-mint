@@ -1,5 +1,5 @@
-import chalk from "chalk";
 import ora from "ora";
+import { info, warn } from "./logger";
 import { nowMs } from "./clock";
 
 export async function waitForMintTime(mintTime: Date, earlyFireMs: number = 0): Promise<void> {
@@ -9,15 +9,15 @@ export async function waitForMintTime(mintTime: Date, earlyFireMs: number = 0): 
   const diff = fireTime.getTime() - now.getTime();
 
   if (diff <= 0) {
-    console.log(chalk.yellow("  Fire time already passed — sending immediately."));
+    warn("Fire time already passed — sending immediately.");
     return;
   }
 
-  console.log(chalk.bold.white(`\n⏰ Mint time: ${mintTime.toISOString()}`));
+  info(`Mint time: ${mintTime.toISOString()}`);
   if (earlyFireMs > 0) {
-    console.log(chalk.bold.yellow(`  🔥 Early fire: ${earlyFireMs}ms before mint → firing at ${fireTime.toISOString()}`));
+    info(`Early fire: ${earlyFireMs}ms before mint → firing at ${fireTime.toISOString()}`);
   }
-  console.log(chalk.gray(`  Now: ${now.toISOString()} | Waiting ${Math.ceil(diff / 1000)}s...\n`));
+  info(`Now: ${now.toISOString()} | waiting ${Math.ceil(diff / 1000)}s`);
 
   // If more than 10 seconds away, show a countdown spinner
   if (diff > 10000) {
@@ -56,7 +56,7 @@ export async function waitForMintTime(mintTime: Date, earlyFireMs: number = 0): 
     }
   }
 
-  console.log(chalk.bold.green("  🟢 FIRING!\n"));
+  info("FIRING");
 }
 
 function formatCountdown(target: Date): string {

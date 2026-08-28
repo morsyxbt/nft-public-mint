@@ -2,12 +2,12 @@
 
 import path from "path";
 import dotenv from "dotenv";
-import chalk from "chalk";
 
 dotenv.config({ path: path.resolve(process.cwd(), ".env") });
 
 import { runWizard } from "./wizard";
 import { closePrompts } from "./prompt";
+import { error } from "./logger";
 
 const HELP = `
 NFT Public Mint Sniper
@@ -39,7 +39,7 @@ async function main(): Promise<void> {
     process.exit(0);
   } catch (err: any) {
     closePrompts();
-    console.error(chalk.red(`\n❌ ${err.message}\n`));
+    error(err.message);
     process.exit(1);
   }
 }

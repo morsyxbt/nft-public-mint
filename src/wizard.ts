@@ -24,6 +24,7 @@ import { buildLocalMintPlan, LocalMintPlan } from "./seadrop-public";
 import { localPublicSnipe } from "./local-mint";
 import { parseFireTime, toIST } from "./time-format";
 import { syncClock, nowMs } from "./clock";
+import { banner, detail, error, info, kv, ok, section, warn } from "./logger";
 import { askChoice, askHidden, askNumber, askText, askYesNo, closePrompts } from "./prompt";
 
 export async function runWizard(): Promise<void> {
@@ -58,28 +59,23 @@ export async function runWizard(): Promise<void> {
   // ── 5. RPC endpoints ──────────────────────────────────────────────────
   const manualRpcs = await promptRpc(chainProfile);
   const { urls: candidateRpcs, source } = resolveRpcsForChain(chainKey, manualRpcs);
-  console.log(chalk.gray(`  Source: ${source}`));
-  console.log(chalk.gray(`  Checking ${candidateRpcs.length} endpoint(s)...`));
+  info(`Source: ${source}`);
+  info(`Checking ${candidateRpcs.length} endpoint(s)...`);
 
   const plan = await planRpcs(candidateRpcs, chainProfile.chainId);
 
   for (const bad of plan.dropped) {
     const wrong = resolveChain(bad.chainId);
-    console.log(
-      chalk.red(`    ✗ ${labelOf(bad.url)} is chain ${bad.chainId}${wrong ? ` (${wrong.name})` : ""} — dropped`)
-    );
+    error(`${labelOf(bad.url)} is chain ${bad.chainId}${wrong ? ` (${wrong.name})` : ""} — dropped`);
   }
   for (const ep of parseRpcEndpoints(plan.urls)) {
     const failure = plan.failures.find((f) => f.url === ep.url);
     if (failure) {
       const benign = /not allowed|does not exist|not supported|method not found/i.test(failure.message);
-      console.log(
-        benign
-          ? chalk.gray(`    • ${ep.label}  (send-only)`)
-          : chalk.yellow(`    ⚠ ${ep.label}  ${failure.message.slice(0, 90)}`)
-      );
+      if (benign) detail(`${ep.label}  (send-only)`);
+      else warn(`${ep.label}  ${failure.message.slice(0, 90)}`);
     } else {
-      console.log(chalk.green(`    ✓ ${ep.label}`));
+      ok(`${ep.label}`);
     }
   }
 
@@ -87,17 +83,17 @@ export async function runWizard(): Promise<void> {
     throw new Error(`No usable RPC endpoint for ${chainProfile.name}`);
   }
   if (!plan.verified) {
-    console.log(chalk.yellow(`  ⚠ No endpoint confirmed chain id ${chainProfile.chainId}.`));
+    warn(`No endpoint confirmed chain id ${chainProfile.chainId}.`);
     if (!(await askYesNo("Continue anyway?", false))) {
       throw new Error("Aborted — could not verify the RPC chain");
     }
   } else {
-    console.log(chalk.green(`  ✓ Confirmed chain id ${chainProfile.chainId} (${chainProfile.name})`));
+    ok(`Confirmed chain id ${chainProfile.chainId} (${chainProfile.name})`);
   }
   const rpcUrls = plan.urls;
 
   // ── 6. Read the public drop from chain ────────────────────────────────
-  console.log(chalk.bold.white("\nDrop"));
+  section("Drop");
   const mintPlan = await buildLocalMintPlan(rpcUrls[0], nftContract, quantity);
   if (!mintPlan) {
     throw new Error(
@@ -111,35 +107,25 @@ export async function runWizard(): Promise<void> {
   const endsAt = new Date(drop.endTime * 1000);
   const live = nowMs() >= startsAt.getTime() && nowMs() < endsAt.getTime();
 
-  console.log(chalk.green("  ✓ Built calldata from on-chain SeaDrop — no OpenSea token needed"));
-  console.log(chalk.gray(`    Fee recipient: ${mintPlan.feeRecipient}`));
-  console.log(
-    chalk.gray(
-      `    Price:         ${formatEther(drop.mintPrice)} × ${quantity} = ${formatEther(mintPlan.value)} per wallet`
-    )
-  );
-  console.log(chalk.gray(`    Max per wallet: ${drop.maxTotalMintableByWallet || "unlimited"}`));
-  console.log(
-    chalk.gray(
-      `    Window:        ${toIST(startsAt)} → ${toIST(endsAt)} IST  ${live ? chalk.green("(live)") : chalk.yellow(`(opens in ${formatRemaining(startsAt.getTime() - nowMs())})`)}`
-    )
-  );
+  ok("Built calldata from on-chain SeaDrop — no OpenSea token needed");
+  detail(`Fee recipient: ${mintPlan.feeRecipient}`);
+  detail(`Price: ${formatEther(drop.mintPrice)} × ${quantity} = ${formatEther(mintPlan.value)} per wallet`);
+  detail(`Max per wallet: ${drop.maxTotalMintableByWallet || "unlimited"}`);
+  detail(`Window: ${toIST(startsAt)} → ${toIST(endsAt)} IST  ${live ? "live" : `opens in ${formatRemaining(startsAt.getTime() - nowMs())}`}`);
 
   if (drop.maxTotalMintableByWallet > 0 && quantity > drop.maxTotalMintableByWallet) {
-    console.log(
-      chalk.yellow(`  ⚠ This drop allows only ${drop.maxTotalMintableByWallet} per wallet — ${quantity} will revert.`)
-    );
+    warn(`This drop allows only ${drop.maxTotalMintableByWallet} per wallet — ${quantity} will revert.`);
   }
   if (nowMs() >= endsAt.getTime()) {
-    console.log(chalk.yellow("  ⚠ This public stage has already ended on-chain."));
+    warn("This public stage has already ended on-chain.");
   }
 
   // ── 7. Gas ────────────────────────────────────────────────────────────
   const provider = new JsonRpcProvider(rpcUrls[0]);
-  console.log(chalk.bold.white("\nGas"));
+  section("Gas");
   const baseFeeGwei = await currentBaseFeeGwei(provider);
   if (baseFeeGwei !== null) {
-    console.log(chalk.gray(`  Network base fee right now: ${baseFeeGwei.toFixed(6)} gwei`));
+    detail(`Network base fee right now: ${baseFeeGwei.toFixed(6)} gwei`);
   }
 
   const envMaxFee = Number(process.env.MAX_FEE_PER_GAS || (chainKey === "ethereum" ? 80 : 2));
@@ -151,7 +137,7 @@ export async function runWizard(): Promise<void> {
   if (baseFeeGwei !== null) {
     const suggested = Math.ceil((baseFeeGwei * 2 + envPriority) * 1000) / 1000;
     if (envMaxFee < baseFeeGwei) defaultMaxFee = suggested;
-    console.log(chalk.gray(`  Must be at least ${baseFeeGwei.toFixed(6)} gwei; ${suggested} gives room to spare.`));
+    detail(`Must be at least ${baseFeeGwei.toFixed(6)} gwei; ${suggested} gives room to spare.`);
   }
 
   const maxFeeGwei = await askNumber("Max fee per gas (gwei) — your ceiling", defaultMaxFee, {
@@ -173,7 +159,7 @@ export async function runWizard(): Promise<void> {
   const { targetStart, timingLabel } = await promptTiming(drop.startTime);
 
   // ── 9. Balances + affordability ───────────────────────────────────────
-  console.log(chalk.bold.white("\nWallets"));
+  section("Wallets");
   const wallets = walletKeys.map((k) => new Wallet(k));
   const balances = await Promise.all(
     wallets.map((w) => provider.getBalance(w.address).catch(() => null))
@@ -189,32 +175,28 @@ export async function runWizard(): Promise<void> {
     const text = bal === null ? "balance unavailable" : `${Number(formatEther(bal)).toFixed(6)} ${symbol}`;
     const short = bal !== null && bal < required;
     const line = `  [W${i}] ${w.address}  ${text}`;
-    console.log(short ? chalk.red(`${line}  ✗ needs ${formatEther(required)}`) : chalk.gray(line));
+    if (short) warn(`${line}  needs ${formatEther(required)} ${symbol}`);
+    else detail(line);
   });
 
   const shortWallets = wallets.filter((_, i) => balances[i] !== null && (balances[i] as bigint) < required);
   if (shortWallets.length > 0) {
-    console.log(
-      chalk.gray(
-        `\n  Nodes reserve gasLimit × maxFee${mintPlan.value > 0n ? " + mint price" : ""} = ${formatEther(required)} ${symbol} per wallet upfront.`
-      )
-    );
+    detail(`Nodes reserve gasLimit × maxFee${mintPlan.value > 0n ? " + mint price" : ""} = ${formatEther(required)} ${symbol} per wallet upfront.`);
     const poorest = balances
       .filter((b): b is bigint => b !== null)
       .reduce((a, b) => (a < b ? a : b));
     const affordable = Number((poorest - mintPlan.value) / BigInt(gasLimit)) / 1e9;
     if (affordable > 0) {
-      console.log(
-        chalk.yellow(`  Tip: a max fee at or below ${affordable.toFixed(4)} gwei would avoid the reserve shortfall.`)
-      );
+      warn(`Fund the wallets, or re-run with a max fee at or below ${affordable.toFixed(4)} gwei.`);
     }
-    // Balance check is advisory only — underfunded wallets still broadcast and
-    // nodes reject per-tx, so we warn instead of aborting the whole run.
-    console.log(chalk.yellow("  ⚠ Balance check bypassed — proceeding to fire."));
+    if (shortWallets.length === wallets.length) {
+      throw new Error("Every wallet is underfunded — nothing could be broadcast.");
+    }
+    warn("The remaining wallet(s) can still fire.");
   }
 
   // ── 10. Confirm ───────────────────────────────────────────────────────
-  console.log(chalk.bold.white("\n──────── READY ────────"));
+  section("READY");
   line("Chain", `${chainProfile.name} (${chainProfile.chainId})`);
   line("RPC", `${labelOf(rpcUrls[0])} + ${rpcUrls.length - 1} more`);
   line("Target", target.label);
@@ -227,10 +209,9 @@ export async function runWizard(): Promise<void> {
   );
   line("Gas", `${maxFeeGwei} / ${priorityGwei} gwei · limit ${gasLimit}`);
   line("Timing", timingLabel);
-  console.log(chalk.bold.white("───────────────────────"));
 
-  if (!(await askYesNo(chalk.bold("Fire?"), false))) {
-    console.log(chalk.yellow("\n  Aborted — nothing was sent.\n"));
+  if (!(await askYesNo("Fire?", false))) {
+    warn("Aborted — nothing was sent.");
     closePrompts();
     return;
   }
@@ -254,9 +235,9 @@ export async function runWizard(): Promise<void> {
 // ── Steps ───────────────────────────────────────────────────────────────
 
 async function promptKeys(): Promise<string[]> {
-  console.log(chalk.bold.white("Private keys"));
-  console.log(chalk.gray("  Paste one key per line — typing is hidden. Blank line when done."));
-  console.log(chalk.gray("  Each key is confirmed by its wallet address. Nothing is saved to disk."));
+  section("Private keys");
+  detail("Paste one key per line — typing is hidden. Blank line when done.");
+  detail("Each key is confirmed by its wallet address. Nothing is saved to disk.");
 
   const keys: string[] = [];
   const seen = new Set<string>();
@@ -265,7 +246,7 @@ async function promptKeys(): Promise<string[]> {
     const raw = await askHidden(chalk.gray(`  › key ${keys.length + 1}: `));
     if (!raw) {
       if (keys.length === 0) {
-        console.log(chalk.red("  ✗ Need at least one key."));
+        error("Need at least one key.");
         continue;
       }
       break;
@@ -276,28 +257,28 @@ async function promptKeys(): Promise<string[]> {
     try {
       wallet = new Wallet(normalized);
     } catch {
-      console.log(chalk.red("  ✗ Not a valid private key — try again."));
+      error("Not a valid private key — try again.");
       continue;
     }
 
     if (seen.has(wallet.address.toLowerCase())) {
-      console.log(chalk.yellow(`  ⚠ Duplicate of ${short(wallet.address)} — skipped.`));
+      warn(`Duplicate of ${short(wallet.address)} — skipped.`);
       continue;
     }
     seen.add(wallet.address.toLowerCase());
     keys.push(normalized);
-    console.log(chalk.green(`  ✓ [W${keys.length - 1}] ${wallet.address}`));
+    ok(`[W${keys.length - 1}] ${wallet.address}`);
   }
 
-  console.log(chalk.gray(`  ${keys.length} wallet(s) loaded.`));
+  detail(`${keys.length} wallet(s) loaded.`);
   return keys;
 }
 
 async function promptQuantity(walletCount: number): Promise<number> {
-  console.log(chalk.bold.white("\nQuantity"));
+  section("Quantity");
   const qty = await askNumber("NFTs per wallet", 1, { min: 1, max: 100 });
   if (walletCount > 1) {
-    console.log(chalk.gray(`  → ${qty} × ${walletCount} wallets = ${qty * walletCount} total`));
+    detail(`→ ${qty} × ${walletCount} wallets = ${qty * walletCount} total`);
   }
   return Math.floor(qty);
 }
@@ -305,15 +286,15 @@ async function promptQuantity(walletCount: number): Promise<number> {
 async function promptTarget(
   chainKey: string
 ): Promise<{ contract: string; label: string; chainKey: string }> {
-  console.log(chalk.bold.white("\nNFT target"));
-  console.log(chalk.gray("  Paste the OpenSea link (collection or item), a slug, or the contract address."));
+  section("NFT target");
+  detail("Paste the OpenSea link (collection or item), a slug, or the contract address.");
 
   let activeChain = chainKey;
 
   for (;;) {
     const raw = await askText("NFT link");
     if (!raw) {
-      console.log(chalk.red("  ✗ Paste a link, slug, or address."));
+      error("Paste a link, slug, or address.");
       continue;
     }
 
@@ -321,32 +302,30 @@ async function promptTarget(
     try {
       parsed = parseNftLink(raw);
     } catch (err: any) {
-      console.log(chalk.red(`  ✗ ${err.message}`));
+      error(`${err.message}`);
       continue;
     }
 
     if (parsed.chainHint && parsed.chainHint !== activeChain && resolveChain(parsed.chainHint)) {
       const hinted = resolveChain(parsed.chainHint)!;
-      console.log(
-        chalk.yellow(`  ⚠ This link points at ${hinted.name}, but you selected ${resolveChain(activeChain)!.name}.`)
-      );
+      warn(`This link points at ${hinted.name}, but you selected ${resolveChain(activeChain)!.name}.`);
       if (await askYesNo(`Switch to ${hinted.name}?`, true)) {
         activeChain = hinted.key;
-        console.log(chalk.green(`  ✓ Chain switched to ${hinted.name}`));
+        ok(`Chain switched to ${hinted.name}`);
       }
     }
 
     if (parsed.kind === "address") {
       const normalized = normalizeAddress(parsed.value);
       if (!normalized) {
-        console.log(chalk.red(`  ✗ "${parsed.value}" is not a 20-byte address.`));
+        error(`"${parsed.value}" is not a 20-byte address.`);
         continue;
       }
       if (normalized.checksumWarning) {
-        console.log(chalk.yellow("  ⚠ Mixed-case address whose EIP-55 checksum doesn't match — likely a typo."));
+        warn("Mixed-case address whose EIP-55 checksum doesn't match — likely a typo.");
         if (!(await askYesNo("Use it anyway?", false))) continue;
       }
-      console.log(chalk.green(`  ✓ Contract ${normalized.address}`));
+      ok(`Contract ${normalized.address}`);
       return { contract: normalized.address, label: short(normalized.address), chainKey: activeChain };
     }
 
@@ -356,48 +335,44 @@ async function promptTarget(
     const apiKey = (process.env.OPENSEA_API_KEY || "").trim();
 
     try {
-      console.log(chalk.gray(`  Resolving slug "${parsed.value}"${apiKey ? "" : " (no API key — may be refused)"}...`));
+      detail(`Resolving slug "${parsed.value}"${apiKey ? "" : " (no API key — may be refused)"}...`);
       const info = await resolveSlug(parsed.value, apiKey || undefined, activeChain);
       const resolved = normalizeAddress(info.contractAddress);
       if (!resolved) {
-        console.log(chalk.red(`  ✗ Unusable address returned: ${info.contractAddress}`));
+        error(`Unusable address returned: ${info.contractAddress}`);
         continue;
       }
-      console.log(chalk.green(`  ✓ ${info.name} → ${resolved.address}`));
+      ok(`${info.name} → ${resolved.address}`);
       if (info.chain && resolveChain(info.chain) && info.chain !== activeChain) {
-        console.log(chalk.yellow(`  ⚠ Listed on "${info.chain}", not "${activeChain}".`));
+        warn(`Listed on "${info.chain}", not "${activeChain}".`);
         if (await askYesNo(`Switch to ${resolveChain(info.chain)!.name}?`, true)) {
           activeChain = resolveChain(info.chain)!.key;
         }
       }
       return { contract: resolved.address, label: info.name || parsed.value, chainKey: activeChain };
     } catch (err: any) {
-      console.log(chalk.red(`  ✗ ${err.message}`));
-      console.log(
-        chalk.gray("    Paste the contract address (0x…) instead — that always works, no key needed.")
-      );
-      console.log(
-        chalk.gray("    Find it on the collection page under Details, or click any item: the address is in that URL.")
-      );
+      error(`${err.message}`);
+      detail("    Paste the contract address (0x…) instead — that always works, no key needed.");
+      detail("    Find it on the collection page under Details, or click any item: the address is in that URL.");
     }
   }
 }
 
 async function promptRpc(profile: ChainProfile): Promise<string[]> {
-  console.log(chalk.bold.white("\nRPC endpoints"));
-  console.log(chalk.gray("  A private RPC (Alchemy / QuickNode / Infura) is what wins a contested mint."));
+  section("RPC endpoints");
+  detail("A private RPC (Alchemy / QuickNode / Infura) is what wins a contested mint.");
   if (profile.rpc.alchemyHost) {
-    console.log(chalk.gray(`  Paste a full URL, or just your Alchemy key → https://${profile.rpc.alchemyHost}/v2/<key>`));
+    detail(`Paste a full URL, or just your Alchemy key → https://${profile.rpc.alchemyHost}/v2/<key>`);
   }
-  console.log(chalk.gray("  Comma-separate several to blast to all of them."));
+  detail("Comma-separate several to blast to all of them.");
 
   const fromEnv = privateRpcsFromEnv(profile.key);
   if (fromEnv.length > 0) {
-    console.log(chalk.gray(`  .env already has: ${fromEnv.map(maskRpc).join(", ")}`));
-    console.log(chalk.green(`  ✓ Using .env RPC${fromEnv.length > 1 ? "s" : ""} — skipping prompt.`));
+    detail(`  .env already has: ${fromEnv.map(maskRpc).join(", ")}`);
+    ok(`Using .env RPC${fromEnv.length > 1 ? "s" : ""} — skipping prompt.`);
     return fromEnv;
   }
-  console.log(chalk.yellow(`  Nothing in .env for ${profile.name}. Blank = public nodes only.`));
+  warn(`Nothing in .env for ${profile.name}. Blank = public nodes only.`);
 
   for (;;) {
     const raw = await askText(`RPC for ${profile.name}`);
@@ -409,7 +384,7 @@ async function promptRpc(profile: ChainProfile): Promise<string[]> {
     for (const part of parts) {
       const url = toRpcUrl(part, profile.key);
       if (!url) {
-        console.log(chalk.red(`  ✗ "${part}" is not a URL or a usable API key.`));
+        error(`"${part}" is not a URL or a usable API key.`);
         bad = true;
         break;
       }
@@ -417,7 +392,7 @@ async function promptRpc(profile: ChainProfile): Promise<string[]> {
     }
     if (bad || urls.length === 0) continue;
 
-    for (const url of urls) console.log(chalk.green(`  ✓ ${maskRpc(url)}`));
+    for (const url of urls) ok(`${maskRpc(url)}`);
     return urls;
   }
 }
@@ -443,12 +418,12 @@ async function promptTiming(
     try {
       const custom = parseFireTime(raw);
       if (custom.getTime() < startTime * 1000) {
-        console.log(chalk.bold.red(`  ✗ That is before the stage opens (${toIST(at)} IST) — it will revert.`));
+        error(`That is before the stage opens (${toIST(at)} IST) — it will revert.`);
         if (!(await askYesNo("Use it anyway?", false))) continue;
       }
       return { targetStart: custom, timingLabel: `custom — ${toIST(custom)} IST` };
     } catch (err: any) {
-      console.log(chalk.red(`  ✗ ${err.message}`));
+      error(`${err.message}`);
     }
   }
 }
@@ -485,19 +460,19 @@ async function loadWalletsFromFile(path: string): Promise<string[]> {
 
     const addr = wallet.address.toLowerCase();
     if (seen.has(addr)) {
-      console.log(chalk.yellow(`  ⚠ Duplicate ${short(wallet.address)} skipped`));
+      warn(`Duplicate ${short(wallet.address)} skipped`);
       continue;
     }
     seen.add(addr);
     keys.push(normalized);
-    console.log(chalk.green(`  ✓ [W${keys.length - 1}] ${wallet.address}`));
+    ok(`[W${keys.length - 1}] ${wallet.address}`);
   }
 
   if (keys.length === 0) {
     throw new Error(`No valid private keys found in ${path}`);
   }
 
-  console.log(chalk.gray(`  ${keys.length} wallet(s) loaded from ${path}`));
+  detail(`${keys.length} wallet(s) loaded from ${path}`);
   return keys;
 }
 
@@ -548,18 +523,14 @@ function labelOf(url: string): string {
 }
 
 function line(label: string, value: string): void {
-  console.log(`  ${chalk.gray(label.padEnd(10))} ${chalk.white(value)}`);
+  kv(label, value);
 }
 
 function printBanner(): void {
-  console.log(
-    chalk.bold.cyan(`
-╔═══════════════════════════════════════╗
-║        NFT PUBLIC MINT SNIPER         ║
-║   On-chain calldata · no OpenSea      ║
-╚═══════════════════════════════════════╝`)
+  banner(
+    "NFT PUBLIC MINT SNIPER",
+    "Public SeaDrop stages only. Ctrl+C to quit at any point."
   );
-  console.log(chalk.gray("  Public SeaDrop stages only. Ctrl+C to quit at any point.\n"));
 }
 
 // ── JSON wallet loader ─────────────────────────────────────────────────
@@ -571,10 +542,10 @@ async function resolveWalletKeys(): Promise<string[]> {
 
   try {
     await fs.access(walletsPath);
-    console.log(chalk.gray(`  Found wallets.json in ${cwd}`));
+    detail(`Found wallets.json in ${cwd}`);
     return await loadWalletsFromFile(walletsPath);
   } catch {
-    console.log(chalk.gray("  No wallets.json found — enter keys interactively."));
+    detail("No wallets.json found — enter keys interactively.");
     return await promptKeys();
   }
 }
