@@ -208,11 +208,7 @@ export async function runWizard(): Promise<void> {
   line("Gas", `${maxFeeGwei} / ${priorityGwei} gwei · limit ${gasLimit}`);
   line("Timing", timingLabel);
 
-  if (!(await askYesNo("Fire?", false))) {
-    warn("Aborted — nothing was sent.");
-    closePrompts();
-    return;
-  }
+  info("Firing immediately.");
 
   // Hand stdin back so readline never interleaves with the blast logging.
   closePrompts();
