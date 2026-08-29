@@ -30,6 +30,10 @@ gas and timing. Optional defaults can be set in .env (see .env.example).
 
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
+  if (args.includes("--help") || args.includes("-h")) {
+    console.log(HELP);
+    return;
+  }
   try {
     if (args.includes("--telegram")) {
       await startBot();

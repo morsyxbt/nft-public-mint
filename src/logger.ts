@@ -16,10 +16,6 @@ const LEVEL_COLOR: Record<Level, (s: string) => string> = {
 
 let debugEnabled = false;
 
-export function setDebug(on: boolean): void {
-  debugEnabled = on;
-}
-
 export function log(level: Level, message: string): void {
   if (level === "DEBUG" && !debugEnabled) return;
   process.stdout.write(`${LEVEL_COLOR[level](`[${level}]`)} ${message}\n`);

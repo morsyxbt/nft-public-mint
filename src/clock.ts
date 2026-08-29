@@ -85,7 +85,3 @@ export async function syncClock(toleranceMs = 2000): Promise<void> {
 export function nowMs(): number {
   return Date.now() + (skewMs ?? 0);
 }
-
-export function correctedNow(): Date {
-  return new Date(nowMs());
-}
