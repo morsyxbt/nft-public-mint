@@ -20,16 +20,14 @@ import {
   toRpcUrl,
 } from "./rpc-resolver";
 import { parseRpcEndpoints } from "./rpc-blast";
-import { buildLocalMintPlan, LocalMintPlan } from "./seadrop-public";
+import { buildLocalMintPlan } from "./seadrop-public";
 import { localPublicSnipe } from "./local-mint";
 import { parseFireTime, toIST } from "./time-format";
 import { syncClock, nowMs } from "./clock";
-import { banner, detail, error, info, kv, ok, section, warn } from "./logger";
+import { detail, error, info, kv, ok, section, warn } from "./logger";
 import { askChoice, askHidden, askNumber, askText, askYesNo, closePrompts } from "./prompt";
 
 export async function runWizard(): Promise<void> {
-  printBanner();
-
   // Correct the machine clock against public time sources up front so every
   // countdown and the actual fire instant use true time, not a drifting clock.
   await syncClock();
@@ -524,13 +522,6 @@ function labelOf(url: string): string {
 
 function line(label: string, value: string): void {
   kv(label, value);
-}
-
-function printBanner(): void {
-  banner(
-    "NFT PUBLIC MINT SNIPER",
-    "Public SeaDrop stages only. Ctrl+C to quit at any point."
-  );
 }
 
 // ── JSON wallet loader ─────────────────────────────────────────────────
