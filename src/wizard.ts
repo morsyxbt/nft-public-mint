@@ -6,7 +6,6 @@
 //
 // Nothing is written to disk: pasted keys live in memory for the run only.
 
-import path from "path";
 import chalk from "chalk";
 import { JsonRpcProvider, Wallet, formatEther, getAddress, isAddress } from "ethers";
 import { CHAINS, ChainProfile, resolveChain } from "./chains";
@@ -403,50 +402,6 @@ async function promptTiming(
 
 // ── Helpers ─────────────────────────────────────────────────────────────
 
-async function loadWalletsFromFile(path: string): Promise<string[]> {
-  const fs = await import("fs/promises");
-  const raw = await fs.readFile(path, "utf8");
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch (err: any) {
-    throw new Error(`Cannot parse ${path} as JSON: ${err.message}`);
-  }
-  if (!Array.isArray(parsed)) {
-    throw new Error(`Expected JSON array of private keys in ${path}`);
-  }
-
-  const keys: string[] = [];
-  const seen = new Set<string>();
-
-  for (let i = 0; i < parsed.length; i++) {
-    const rawKey = String(parsed[i]).trim();
-    if (!rawKey) continue;
-
-    const normalized = rawKey.startsWith("0x") ? rawKey : `0x${rawKey}`;
-    let wallet: Wallet;
-    try {
-      wallet = new Wallet(normalized);
-    } catch {
-      throw new Error(`Invalid private key at index ${i} in ${path}`);
-    }
-
-    const addr = wallet.address.toLowerCase();
-    if (seen.has(addr)) {
-      log("WARN", `Duplicate ${short(wallet.address)} skipped`);
-      continue;
-    }
-    seen.add(addr);
-    keys.push(normalized);
-    log("INFO", `[W${keys.length - 1}]: ${wallet.address}`);
-  }
-
-  if (keys.length === 0) {
-    throw new Error(`No valid private keys found in ${path}`);
-  }
-  return keys;
-}
-
 
 // Accept an address in any case — explorer copy-pastes arrive case-mangled and
 // hard-failing is worse. A mixed-case string failing EIP-55 is the typo signal.
@@ -508,9 +463,12 @@ export interface HeadlessMintOpts {
 
 // Non-interactive mint path used by the Telegram bot. Reuses the same on-chain
 // plan building as runWizard but takes parameters instead of prompts. Wallets
-// come from wallets.json and RPC from .env, exactly like the wizard.
+// come from SECRET_WALLET and RPC from .env, exactly like the wizard.
 export async function runHeadless(opts: HeadlessMintOpts): Promise<void> {
   await syncClock();
+  if (!opts.slug || !opts.slug.trim()) {
+    throw new Error("Missing mint target — pass a slug, OpenSea URL, or 0x contract address.");
+  }
   const walletKeys = await resolveWalletKeys();
 
   const chainProfile = resolveChain(opts.chainKey);
@@ -576,15 +534,37 @@ export async function runHeadless(opts: HeadlessMintOpts): Promise<void> {
 }
 
 async function resolveWalletKeys(): Promise<string[]> {
-  const fs = await import("fs/promises");
-  const cwd = process.cwd();
-  const walletsPath = path.resolve(cwd, "wallets.json");
-
-  try {
-    await fs.access(walletsPath);
-    return await loadWalletsFromFile(walletsPath);
-  } catch {
-    log("INFO", "No wallets.json found — enter keys interactively.");
+  const raw = (process.env.SECRET_WALLET || "").trim();
+  if (!raw) {
     return await promptKeys();
   }
+
+  const parts = raw.split(",").map((s) => s.trim()).filter(Boolean);
+  const keys: string[] = [];
+  const seen = new Set<string>();
+
+  for (let i = 0; i < parts.length; i++) {
+    const normalized = parts[i].startsWith("0x") ? parts[i] : `0x${parts[i]}`;
+    let wallet: Wallet;
+    try {
+      wallet = new Wallet(normalized);
+    } catch {
+      throw new Error(`Invalid private key at position ${i + 1} in SECRET_WALLET`);
+    }
+
+    const addr = wallet.address.toLowerCase();
+    if (seen.has(addr)) {
+      log("WARN", `Duplicate ${short(wallet.address)} skipped`);
+      continue;
+    }
+    seen.add(addr);
+    keys.push(normalized);
+    log("INFO", `[W${keys.length - 1}] ${wallet.address}`);
+  }
+
+  if (keys.length === 0) {
+    throw new Error("No valid private keys found in SECRET_WALLET");
+  }
+  log("INFO", `${keys.length} wallet(s) loaded from SECRET_WALLET`);
+  return keys;
 }

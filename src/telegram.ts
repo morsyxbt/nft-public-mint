@@ -28,6 +28,9 @@ interface MintJob {
   updateId: number;
   chatId: number;
   slug: string;
+  // Legacy state files stored the mint target as `targetUrl`. Kept so old
+  // jobs still resume after a schema rename.
+  targetUrl?: string;
   chainKey: string;
   quantity: number;
   fireTime: string;
@@ -88,11 +91,18 @@ async function reply(token: string, chatId: number, text: string): Promise<void>
 
 // Run a single job in the background and update its persisted status.
 async function runJob(token: string, state: BotState, job: MintJob): Promise<void> {
+  const slug = job.slug ?? job.targetUrl;
+  if (!slug) {
+    job.status = "failed";
+    job.result = "Job is missing a mint target (slug/url/address). Discard and re-send /mint.";
+    saveState(state);
+    return;
+  }
   job.status = "running";
   saveState(state);
   try {
     await runHeadless({
-      slug: job.slug,
+      slug,
       chainKey: job.chainKey,
       quantity: job.quantity,
       fireTime: job.fireTime,
@@ -160,7 +170,8 @@ export async function startBot(): Promise<void> {
   // Resume any job that was pending/running when the bot last died.
   for (const job of Object.values(state.jobs)) {
     if (job.status === "pending" || job.status === "running") {
-      log("INFO", `Resuming job ${job.updateId} (${job.slug})`);
+      const slug = job.slug ?? job.targetUrl;
+      log("INFO", `Resuming job ${job.updateId} (${slug ?? "?"}`);
       void runJob(token, state, job);
     }
   }
