@@ -11,7 +11,7 @@ import { closePrompts } from "./prompt";
 import { log } from "./logger";
 
 const HELP = `
-NFT Public Mint Sniper
+NFT Minter
 
   Mints public SeaDrop stages. Calldata is built from on-chain state, so no
   OpenSea account or access token is required.

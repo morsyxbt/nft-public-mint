@@ -1,4 +1,4 @@
-# NFT Public Mint Sniper
+# NFT Minter
 
 A command-line tool for sniping **public** NFT mints on OpenSea's SeaDrop, across
 Ethereum, Base and Robinhood Chain.
@@ -28,13 +28,13 @@ Multi-wallet: paste as many keys as you like and they all fire in parallel.
 Run these **one line at a time**, pressing Enter after each:
 
 ```bash
-git clone https://github.com/morsyxbt/nft-public-mint.git
-cd nft-public-mint
+git clone https://github.com/morsyxbt/nft-minter.git
+cd nft-minter
 npm install
 npm run build
 ```
 
-Before running `npm install`, check your prompt ends in `nft-public-mint` — if the
+Before running `npm install`, check your prompt ends in `nft-minter` — if the
 `cd` didn't take, everything after it fails.
 
 Then confirm the build worked:
@@ -48,10 +48,10 @@ npm start -- --help
 
 **`Set-Location : A positional parameter cannot be found`** (Windows PowerShell)
 Two commands got pasted onto one line — you'll see something like
-`cd nft-public-mintnpm install`. Run each line separately.
+`cd nft-minternpm install`. Run each line separately.
 
 **`Could not read package.json` / `Missing script: build`**
-You're in the wrong folder. Run `cd nft-public-mint` first.
+You're in the wrong folder. Run `cd nft-minter` first.
 
 **`npm` or `git` is not recognised**
 Install [Node.js 18+](https://nodejs.org) and [Git](https://git-scm.com/downloads),
@@ -97,13 +97,12 @@ The wizard asks you seven things:
 | **6. Gas** | Ceiling and tip. The live base fee is shown right above the prompt. |
 | **7. Timing** | Wait for the stage to open, or fire now if it's already live. |
 
-Then it shows a summary and asks `Fire?`. **Nothing is sent until you type `y`.**
+Then it prints a summary and fires immediately — there is no confirmation prompt.
 
 ## Step 4 — Set it and walk away
 
 If the drop opens later, choose **"Wait for the stage"**. It pre-signs everything,
-holds, and fires at the exact start time — no supervision needed. The `Fire?`
-confirmation comes *before* the wait, so there's no second prompt at mint time.
+holds, and fires at the exact start time — no supervision needed. There is no confirmation prompt, so there's nothing to approve at mint time.
 
 Two things to get right if you're leaving it running:
 
@@ -207,6 +206,15 @@ Send a command in this format:
   after the quantity are treated as the time.
 - Wallets come from `wallets.json` and RPC from `.env`, exactly like the wizard.
 
+Mints run concurrently — send several `/mint` commands and they all fire in parallel. Every job and the last-seen Telegram `update_id` are written to `bot-state.json`, so if the bot restarts or crashes it resumes unfinished jobs and never re-reads an already-handled message — you don't resend anything.
+
+Status is reported honestly:
+- `Mint complete.` — every wallet confirmed.
+- `Minted X/Y — N wallet(s) failed: <reason>` — partial success.
+- `Mint failed — …` / `No transaction was accepted by any RPC — <reason>` — nothing confirmed.
+
+> Fund each wallet with enough native gas token (ETH on Ethereum/Base/Robinhood). The node reserves `gasLimit × maxFee` upfront, so a thin wallet is rejected even when the real cost is tiny.
+
 ---
 
 ## Allowlist / FCFS mints
@@ -219,8 +227,3 @@ from on-chain data, which is the whole premise of this tool.
 ## License
 
 MIT
-
- - 29/08/2026, 02:00 AM → fires 29/8/2026 02:00 IST                                                                                                                                                                                                                           
- - tomorrow 03:30 → tomorrow at 03:30 IST                                                                                                                                                                                                                                     
- - 29/8 14:30 → 29/8 14:30 IST                                                                                                                                                                                                                                                
- - 02:00 → today (unchanged) 
