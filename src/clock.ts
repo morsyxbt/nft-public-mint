@@ -1,4 +1,4 @@
-import { info, warn } from "./logger";
+import { log } from "./logger";
 
 // The machine clock may drift or be plain wrong. Mint timing is absolute, so a
 // skewed clock fires late or early regardless of how carefully the target is
@@ -65,7 +65,7 @@ export async function syncClock(toleranceMs = 2000): Promise<void> {
 
   if (results.length === 0) {
     skewMs = 0;
-    warn("Time source unreachable — using system clock unadjusted.");
+    log("WARN", "Time source unreachable — using system clock unadjusted.");
     return;
   }
 
@@ -75,9 +75,9 @@ export async function syncClock(toleranceMs = 2000): Promise<void> {
 
   const secs = median / 1000;
   if (Math.abs(median) > toleranceMs) {
-    warn(`System clock off by ${secs.toFixed(1)}s — applying correction.`);
+    log("WARN", `System clock off by ${secs.toFixed(1)}s — applying correction.`);
   } else {
-    info(`Clock skew ${secs.toFixed(2)}s — within tolerance.`);
+    log("INFO", `Clock skew ${secs.toFixed(2)}s — within tolerance.`);
   }
 }
 

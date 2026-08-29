@@ -7,7 +7,7 @@ dotenv.config({ path: path.resolve(process.cwd(), ".env") });
 
 import { runWizard } from "./wizard";
 import { closePrompts } from "./prompt";
-import { error } from "./logger";
+import { log } from "./logger";
 
 const HELP = `
 NFT Public Mint Sniper
@@ -39,7 +39,7 @@ async function main(): Promise<void> {
     process.exit(0);
   } catch (err: any) {
     closePrompts();
-    error(err.message);
+    log("ERROR", err.message);
     process.exit(1);
   }
 }

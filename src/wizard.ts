@@ -24,7 +24,7 @@ import { buildLocalMintPlan } from "./seadrop-public";
 import { localPublicSnipe } from "./local-mint";
 import { parseFireTime, toIST } from "./time-format";
 import { syncClock, nowMs } from "./clock";
-import { detail, error, info, kv, ok, section, warn } from "./logger";
+import { log } from "./logger";
 import { askChoice, askHidden, askNumber, askText, askYesNo, closePrompts } from "./prompt";
 
 export async function runWizard(): Promise<void> {
@@ -57,23 +57,23 @@ export async function runWizard(): Promise<void> {
   // ── 5. RPC endpoints ──────────────────────────────────────────────────
   const manualRpcs = await promptRpc(chainProfile);
   const { urls: candidateRpcs, source } = resolveRpcsForChain(chainKey, manualRpcs);
-  info(`Source: ${source}`);
-  info(`Checking ${candidateRpcs.length} endpoint(s)...`);
+  log("INFO", `Source: ${source}`);
+  log("INFO", `Checking ${candidateRpcs.length} endpoint(s)...`);
 
   const plan = await planRpcs(candidateRpcs, chainProfile.chainId);
 
   for (const bad of plan.dropped) {
     const wrong = resolveChain(bad.chainId);
-    error(`${labelOf(bad.url)} is chain ${bad.chainId}${wrong ? ` (${wrong.name})` : ""} — dropped`);
+    log("ERROR", `${labelOf(bad.url)} is chain ${bad.chainId}${wrong ? ` (${wrong.name})` : ""} — dropped`);
   }
   for (const ep of parseRpcEndpoints(plan.urls)) {
     const failure = plan.failures.find((f) => f.url === ep.url);
     if (failure) {
       const benign = /not allowed|does not exist|not supported|method not found/i.test(failure.message);
-      if (benign) detail(`${ep.label}  (send-only)`);
-      else warn(`${ep.label}  ${failure.message.slice(0, 90)}`);
+      if (benign) log("INFO", `${ep.label}  (send-only)`);
+      else log("WARN", `${ep.label}  ${failure.message.slice(0, 90)}`);
     } else {
-      ok(`${ep.label}`);
+      log("INFO", `${ep.label}`);
     }
   }
 
@@ -81,17 +81,16 @@ export async function runWizard(): Promise<void> {
     throw new Error(`No usable RPC endpoint for ${chainProfile.name}`);
   }
   if (!plan.verified) {
-    warn(`No endpoint confirmed chain id ${chainProfile.chainId}.`);
+    log("WARN", `No endpoint confirmed chain id ${chainProfile.chainId}.`);
     if (!(await askYesNo("Continue anyway?", false))) {
       throw new Error("Aborted — could not verify the RPC chain");
     }
   } else {
-    ok(`Confirmed chain id ${chainProfile.chainId} (${chainProfile.name})`);
+    log("INFO", `Confirmed chain id ${chainProfile.chainId} (${chainProfile.name})`);
   }
   const rpcUrls = plan.urls;
 
   // ── 6. Read the public drop from chain ────────────────────────────────
-  section("Drop");
   const mintPlan = await buildLocalMintPlan(rpcUrls[0], nftContract, quantity);
   if (!mintPlan) {
     throw new Error(
@@ -105,25 +104,24 @@ export async function runWizard(): Promise<void> {
   const endsAt = new Date(drop.endTime * 1000);
   const live = nowMs() >= startsAt.getTime() && nowMs() < endsAt.getTime();
 
-  ok("Built calldata from on-chain SeaDrop state");
-  detail(`Fee recipient: ${mintPlan.feeRecipient}`);
-  detail(`Price: ${formatEther(drop.mintPrice)} × ${quantity} = ${formatEther(mintPlan.value)} per wallet`);
-  detail(`Max per wallet: ${drop.maxTotalMintableByWallet || "unlimited"}`);
-  detail(`Window: ${toIST(startsAt)} → ${toIST(endsAt)} IST  ${live ? "live" : `opens in ${formatRemaining(startsAt.getTime() - nowMs())}`}`);
+  log("INFO", "Built calldata from on-chain SeaDrop state");
+  log("INFO", `Fee recipient: ${mintPlan.feeRecipient}`);
+  log("INFO", `Price: ${formatEther(drop.mintPrice)} × ${quantity} = ${formatEther(mintPlan.value)} per wallet`);
+  log("INFO", `Max per wallet: ${drop.maxTotalMintableByWallet || "unlimited"}`);
+  log("INFO", `Window: ${toIST(startsAt)} → ${toIST(endsAt)} IST  ${live ? "live" : `opens in ${formatRemaining(startsAt.getTime() - nowMs())}`}`);
 
   if (drop.maxTotalMintableByWallet > 0 && quantity > drop.maxTotalMintableByWallet) {
-    warn(`This drop allows only ${drop.maxTotalMintableByWallet} per wallet — ${quantity} will revert.`);
+    log("WARN", `This drop allows only ${drop.maxTotalMintableByWallet} per wallet — ${quantity} will revert.`);
   }
   if (nowMs() >= endsAt.getTime()) {
-    warn("This public stage has already ended on-chain.");
+    log("WARN", "This public stage has already ended on-chain.");
   }
 
   // ── 7. Gas ────────────────────────────────────────────────────────────
   const provider = new JsonRpcProvider(rpcUrls[0]);
-  section("Gas");
   const baseFeeGwei = await currentBaseFeeGwei(provider);
   if (baseFeeGwei !== null) {
-    detail(`Network base fee right now: ${baseFeeGwei.toFixed(6)} gwei`);
+    log("INFO", `Network base fee: ${baseFeeGwei.toFixed(6)} gwei`);
   }
 
   const envMaxFee = Number(process.env.MAX_FEE_PER_GAS || (chainKey === "ethereum" ? 80 : 2));
@@ -135,7 +133,7 @@ export async function runWizard(): Promise<void> {
   if (baseFeeGwei !== null) {
     const suggested = Math.ceil((baseFeeGwei * 2 + envPriority) * 1000) / 1000;
     if (envMaxFee < baseFeeGwei) defaultMaxFee = suggested;
-    detail(`Must be at least ${baseFeeGwei.toFixed(6)} gwei; ${suggested} gives room to spare.`);
+    log("INFO", `Must be at least ${baseFeeGwei.toFixed(6)} gwei; ${suggested} gives room to spare.`);
   }
 
   const maxFeeGwei = await askNumber("Max fee per gas (gwei) — your ceiling", defaultMaxFee, {
@@ -157,7 +155,6 @@ export async function runWizard(): Promise<void> {
   const { targetStart, timingLabel } = await promptTiming(drop.startTime);
 
   // ── 9. Balances + affordability ───────────────────────────────────────
-  section("Wallets");
   const wallets = walletKeys.map((k) => new Wallet(k));
   const balances = await Promise.all(
     wallets.map((w) => provider.getBalance(w.address).catch(() => null))
@@ -173,28 +170,27 @@ export async function runWizard(): Promise<void> {
     const text = bal === null ? "balance unavailable" : `${Number(formatEther(bal)).toFixed(6)} ${symbol}`;
     const short = bal !== null && bal < required;
     const line = `  [W${i}] ${w.address}  ${text}`;
-    if (short) warn(`${line}  needs ${formatEther(required)} ${symbol}`);
-    else detail(line);
+    if (short) log("WARN", `${line}  needs ${formatEther(required)} ${symbol}`);
+    else log("INFO", `[W${i}]: ${w.address}  ${text}`);
   });
 
   const shortWallets = wallets.filter((_, i) => balances[i] !== null && (balances[i] as bigint) < required);
   if (shortWallets.length > 0) {
-    detail(`Nodes reserve gasLimit × maxFee${mintPlan.value > 0n ? " + mint price" : ""} = ${formatEther(required)} ${symbol} per wallet upfront.`);
+    log("INFO", `Nodes reserve gasLimit × maxFee${mintPlan.value > 0n ? " + mint price" : ""} = ${formatEther(required)} ${symbol} per wallet upfront.`);
     const poorest = balances
       .filter((b): b is bigint => b !== null)
       .reduce((a, b) => (a < b ? a : b));
     const affordable = Number((poorest - mintPlan.value) / BigInt(gasLimit)) / 1e9;
     if (affordable > 0) {
-      warn(`Fund the wallets, or re-run with a max fee at or below ${affordable.toFixed(4)} gwei.`);
+      log("WARN", `Fund the wallets, or re-run with a max fee at or below ${affordable.toFixed(4)} gwei.`);
     }
     if (shortWallets.length === wallets.length) {
       throw new Error("Every wallet is underfunded — nothing could be broadcast.");
     }
-    warn("The remaining wallet(s) can still fire.");
+    log("WARN", "The remaining wallet(s) can still fire.");
   }
 
   // ── 10. Confirm ───────────────────────────────────────────────────────
-  section("READY");
   line("Chain", `${chainProfile.name} (${chainProfile.chainId})`);
   line("RPC", `${labelOf(rpcUrls[0])} + ${rpcUrls.length - 1} more`);
   line("Target", target.label);
@@ -234,7 +230,7 @@ async function promptKeys(): Promise<string[]> {
     const raw = await askHidden(chalk.gray(`  › key ${keys.length + 1}: `));
     if (!raw) {
       if (keys.length === 0) {
-        error("Need at least one key.");
+        log("ERROR", "Need at least one key.");
         continue;
       }
       break;
@@ -245,28 +241,27 @@ async function promptKeys(): Promise<string[]> {
     try {
       wallet = new Wallet(normalized);
     } catch {
-      error("Not a valid private key — try again.");
+      log("ERROR", "Not a valid private key — try again.");
       continue;
     }
 
     if (seen.has(wallet.address.toLowerCase())) {
-      warn(`Duplicate of ${short(wallet.address)} — skipped.`);
+      log("WARN", `Duplicate of ${short(wallet.address)} — skipped.`);
       continue;
     }
     seen.add(wallet.address.toLowerCase());
     keys.push(normalized);
-    ok(`[W${keys.length - 1}] ${wallet.address}`);
+    log("INFO", `[W${keys.length - 1}]: ${wallet.address}`);
   }
 
-  detail(`${keys.length} wallet(s) loaded.`);
+  log("INFO", `${keys.length} wallet(s) loaded.`);
   return keys;
 }
 
 async function promptQuantity(walletCount: number): Promise<number> {
-  section("Quantity");
   const qty = await askNumber("NFTs per wallet", 1, { min: 1, max: 100 });
   if (walletCount > 1) {
-    detail(`→ ${qty} × ${walletCount} wallets = ${qty * walletCount} total`);
+    log("INFO", `Quantity: ${qty} × ${walletCount} wallets = ${qty * walletCount} total`);
   }
   return Math.floor(qty);
 }
@@ -274,15 +269,14 @@ async function promptQuantity(walletCount: number): Promise<number> {
 async function promptTarget(
   chainKey: string
 ): Promise<{ contract: string; label: string; chainKey: string }> {
-  section("NFT target");
-  detail("Paste the OpenSea link (collection or item), a slug, or the contract address.");
+  log("INFO", "Paste the OpenSea link (collection or item), a slug, or the contract address.");
 
   let activeChain = chainKey;
 
   for (;;) {
     const raw = await askText("NFT link");
     if (!raw) {
-      error("Paste a link, slug, or address.");
+      log("ERROR", "Paste a link, slug, or address.");
       continue;
     }
 
@@ -290,30 +284,30 @@ async function promptTarget(
     try {
       parsed = parseNftLink(raw);
     } catch (err: any) {
-      error(`${err.message}`);
+      log("ERROR", `${err.message}`);
       continue;
     }
 
     if (parsed.chainHint && parsed.chainHint !== activeChain && resolveChain(parsed.chainHint)) {
       const hinted = resolveChain(parsed.chainHint)!;
-      warn(`This link points at ${hinted.name}, but you selected ${resolveChain(activeChain)!.name}.`);
+      log("WARN", `This link points at ${hinted.name}, but you selected ${resolveChain(activeChain)!.name}.`);
       if (await askYesNo(`Switch to ${hinted.name}?`, true)) {
         activeChain = hinted.key;
-        ok(`Chain switched to ${hinted.name}`);
+        log("INFO", `Chain switched to ${hinted.name}`);
       }
     }
 
     if (parsed.kind === "address") {
       const normalized = normalizeAddress(parsed.value);
       if (!normalized) {
-        error(`"${parsed.value}" is not a 20-byte address.`);
+        log("ERROR", `"${parsed.value}" is not a 20-byte address.`);
         continue;
       }
       if (normalized.checksumWarning) {
-        warn("Mixed-case address whose EIP-55 checksum doesn't match — likely a typo.");
+        log("WARN", "Mixed-case address whose EIP-55 checksum doesn't match — likely a typo.");
         if (!(await askYesNo("Use it anyway?", false))) continue;
       }
-      ok(`Contract ${normalized.address}`);
+      log("INFO", `Contract: ${normalized.address}`);
       return { contract: normalized.address, label: short(normalized.address), chainKey: activeChain };
     }
 
@@ -323,25 +317,25 @@ async function promptTarget(
     const apiKey = (process.env.OPENSEA_API_KEY || "").trim();
 
     try {
-      detail(`Resolving slug "${parsed.value}"${apiKey ? "" : " (no API key — may be refused)"}...`);
+      log("INFO", `Resolving slug "${parsed.value}"${apiKey ? "" : " (no API key — may be refused)"}...`);
       const info = await resolveSlug(parsed.value, apiKey || undefined, activeChain);
       const resolved = normalizeAddress(info.contractAddress);
       if (!resolved) {
-        error(`Unusable address returned: ${info.contractAddress}`);
+        log("ERROR", `Unusable address returned: ${info.contractAddress}`);
         continue;
       }
-      ok(`${info.name} → ${resolved.address}`);
+      log("INFO", `Contract: ${resolved.address}`);
       if (info.chain && resolveChain(info.chain) && info.chain !== activeChain) {
-        warn(`Listed on "${info.chain}", not "${activeChain}".`);
+        log("WARN", `Listed on "${info.chain}", not "${activeChain}".`);
         if (await askYesNo(`Switch to ${resolveChain(info.chain)!.name}?`, true)) {
           activeChain = resolveChain(info.chain)!.key;
         }
       }
       return { contract: resolved.address, label: info.name || parsed.value, chainKey: activeChain };
     } catch (err: any) {
-      error(`${err.message}`);
-      detail("    Paste the contract address (0x…) instead — that always works, no key needed.");
-      detail("    Find it on the collection page under Details, or click any item: the address is in that URL.");
+      log("ERROR", `${err.message}`);
+      log("INFO", "    Paste the contract address (0x…) instead — that always works, no key needed.");
+      log("INFO", "    Find it on the collection page under Details, or click any item: the address is in that URL.");
     }
   }
 }
@@ -351,7 +345,7 @@ async function promptRpc(profile: ChainProfile): Promise<string[]> {
   if (fromEnv.length > 0) {
     return fromEnv;
   }
-  warn(`Nothing in .env for ${profile.name}. Blank = public nodes only.`);
+  log("WARN", `Nothing in .env for ${profile.name}. Blank = public nodes only.`);
 
   for (;;) {
     const raw = await askText(`RPC for ${profile.name}`);
@@ -363,7 +357,7 @@ async function promptRpc(profile: ChainProfile): Promise<string[]> {
     for (const part of parts) {
       const url = toRpcUrl(part, profile.key);
       if (!url) {
-        error(`"${part}" is not a URL or a usable API key.`);
+        log("ERROR", `"${part}" is not a URL or a usable API key.`);
         bad = true;
         break;
       }
@@ -371,7 +365,7 @@ async function promptRpc(profile: ChainProfile): Promise<string[]> {
     }
     if (bad || urls.length === 0) continue;
 
-    for (const url of urls) ok(`${maskRpc(url)}`);
+    for (const url of urls) log("INFO", `${maskRpc(url)}`);
     return urls;
   }
 }
@@ -397,12 +391,12 @@ async function promptTiming(
     try {
       const custom = parseFireTime(raw);
       if (custom.getTime() < startTime * 1000) {
-        error(`That is before the stage opens (${toIST(at)} IST) — it will revert.`);
+        log("ERROR", `That is before the stage opens (${toIST(at)} IST) — it will revert.`);
         if (!(await askYesNo("Use it anyway?", false))) continue;
       }
       return { targetStart: custom, timingLabel: `custom — ${toIST(custom)} IST` };
     } catch (err: any) {
-      error(`${err.message}`);
+      log("ERROR", `${err.message}`);
     }
   }
 }
@@ -439,12 +433,12 @@ async function loadWalletsFromFile(path: string): Promise<string[]> {
 
     const addr = wallet.address.toLowerCase();
     if (seen.has(addr)) {
-      warn(`Duplicate ${short(wallet.address)} skipped`);
+      log("WARN", `Duplicate ${short(wallet.address)} skipped`);
       continue;
     }
     seen.add(addr);
     keys.push(normalized);
-    ok(`[W${keys.length - 1}] ${wallet.address}`);
+    log("INFO", `[W${keys.length - 1}]: ${wallet.address}`);
   }
 
   if (keys.length === 0) {
@@ -500,7 +494,7 @@ function labelOf(url: string): string {
 }
 
 function line(label: string, value: string): void {
-  kv(label, value);
+  log("INFO", `${label}: ${value}`);
 }
 
 // ── JSON wallet loader ─────────────────────────────────────────────────
@@ -514,7 +508,7 @@ async function resolveWalletKeys(): Promise<string[]> {
     await fs.access(walletsPath);
     return await loadWalletsFromFile(walletsPath);
   } catch {
-    detail("No wallets.json found — enter keys interactively.");
+    log("INFO", "No wallets.json found — enter keys interactively.");
     return await promptKeys();
   }
 }

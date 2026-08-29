@@ -13,7 +13,7 @@ import { warmConnections } from "./connection-warmer";
 import { waitForMintTime } from "./timer";
 import { explorerTx } from "./chains";
 import { LocalMintPlan } from "./seadrop-public";
-import { detail, error, info, ok, section, warn } from "./logger";
+import { log } from "./logger";
 
 export interface LocalSnipeOpts {
   nftContract: string;
@@ -37,9 +37,8 @@ export async function localPublicSnipe(opts: LocalSnipeOpts): Promise<void> {
   const endpoints = parseRpcEndpoints(rpcUrls);
   const wallets = walletKeys.map((k) => new Wallet(k, provider));
 
-  section("Mint");
-  detail(`SeaDrop:  ${plan.to}`);
-  detail(`Calldata:  ${(plan.data.length - 2) / 2} bytes`);
+  log("INFO", `SeaDrop: ${plan.to}`);
+  log("INFO", `Calldata: ${(plan.data.length - 2) / 2} bytes`);
 
   // ── Warm sockets and pre-fetch everything the signature depends on ──
   await warmConnections(rpcUrls);
@@ -49,7 +48,7 @@ export async function localPublicSnipe(opts: LocalSnipeOpts): Promise<void> {
     provider.getNetwork(),
   ]);
   const chainId = network.chainId;
-  detail(`Nonces: [${nonces.join(", ")}] | chainId: ${chainId}`);
+  log("INFO", `Nonces: [${nonces.join(", ")}] | chainId: ${chainId}`);
 
   // ── Sign everything now, well before the stage opens ──
   const signStart = performance.now();
@@ -70,13 +69,13 @@ export async function localPublicSnipe(opts: LocalSnipeOpts): Promise<void> {
     prepared.push({ idx: i, address: wallets[i].address, blast: prepareBlast(rawTx) });
   }
 
-  ok(`${prepared.length} tx(s) signed in ${(performance.now() - signStart).toFixed(1)}ms`);
+  log("INFO", `${prepared.length} tx(s) signed in ${(performance.now() - signStart).toFixed(1)}ms`);
 
   // ── Wait for the stage, then blast pre-built bytes ──
   if (targetStart) {
     await waitForMintTime(targetStart, 0);
   } else {
-    info("Firing immediately.");
+    log("INFO", "Firing immediately.");
   }
 
   const stageStartMs = targetStart ? targetStart.getTime() : Date.now();
@@ -89,9 +88,9 @@ export async function localPublicSnipe(opts: LocalSnipeOpts): Promise<void> {
 
   const dispatchMs = (performance.now() - dispatchStart).toFixed(2);
   const sinceStage = Math.max(0, Date.now() - stageStartMs);
-  ok(`Broadcast ${fired.length} tx(s) to ${endpoints.length} endpoint(s) in ${dispatchMs}ms (+${sinceStage}ms after stage)`);
+  log("INFO", `Broadcast ${fired.length} tx(s) to ${endpoints.length} endpoint(s) in ${dispatchMs}ms (+${sinceStage}ms after stage)`);
   for (const f of fired) {
-    detail(`[W${f.idx}] ${f.txHash}`);
+    log("INFO", `[W${f.idx}]: ${f.txHash}`);
   }
 
   // Dispatch only means "bytes written". Find out whether any endpoint actually
@@ -107,42 +106,42 @@ export async function localPublicSnipe(opts: LocalSnipeOpts): Promise<void> {
 
   for (const { idx, results } of rejected) {
     const reasons = [...new Set(results.map((r) => r.error).filter(Boolean))] as string[];
-    error(`[W${idx}] REJECTED by every RPC — never broadcast.`);
-    for (const reason of reasons) error(reason);
+    log("ERROR", `[W${idx}] REJECTED by every RPC — never broadcast.`);
+    for (const reason of reasons) log("ERROR", reason);
     if (reasons.some((r) => r.includes("less than block base fee"))) {
-      warn("Max fee is under the chain's base fee. Raise it and re-run.");
+      log("WARN", "Max fee is under the chain's base fee. Raise it and re-run.");
     }
   }
 
   if (accepted.length === 0) {
-    error("No transaction was accepted by any RPC.");
+    log("ERROR", "No transaction was accepted by any RPC.");
     return;
   }
 
   // ── Receipts (only for txs an endpoint actually accepted) ──
-  info(`Confirming ${accepted.length} tx(s)...`);
+  log("INFO", `Confirming ${accepted.length} tx(s)...`);
   let confirmed = 0;
   await Promise.all(
     accepted.map(async ({ idx, txHash }) => {
       const receipt = await waitForReceipt(txHash, rpcUrls[0], 60_000);
       if (!receipt) {
-        warn(`[W${idx}] TIMEOUT — ${explorerTx(chainId, txHash)}`);
+        log("WARN", `[W${idx}] TIMEOUT — ${explorerTx(chainId, txHash)}`);
         return;
       }
       const success = receipt.status === "SUCCESS";
       const msg = `[W${idx}] Block ${receipt.block} | Gas ${receipt.gasUsed} | ${receipt.status} | ${explorerTx(chainId, txHash)}`;
       if (success) {
         confirmed++;
-        ok(msg);
+        log("INFO", msg);
       } else {
-        error(msg);
+        log("ERROR", msg);
       }
     })
   );
 
   if (confirmed > 0) {
-    ok(`Mint complete — ${confirmed}/${fired.length} confirmed`);
+    log("INFO", `Mint complete — ${confirmed}/${fired.length} confirmed`);
   } else {
-    error(`Mint complete — 0/${fired.length} confirmed`);
+    log("ERROR", `Mint complete — 0/${fired.length} confirmed`);
   }
 }

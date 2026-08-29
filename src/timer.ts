@@ -1,5 +1,5 @@
 import ora from "ora";
-import { info, warn } from "./logger";
+import { log } from "./logger";
 import { nowMs } from "./clock";
 
 export async function waitForMintTime(mintTime: Date, earlyFireMs: number = 0): Promise<void> {
@@ -9,7 +9,7 @@ export async function waitForMintTime(mintTime: Date, earlyFireMs: number = 0): 
   const diff = fireTime.getTime() - now.getTime();
 
   if (diff <= 0) {
-    warn("Fire time already passed — sending immediately.");
+    log("WARN", "Fire time already passed — sending immediately.");
     return;
   }
 
@@ -50,7 +50,7 @@ export async function waitForMintTime(mintTime: Date, earlyFireMs: number = 0): 
     }
   }
 
-  info("FIRING");
+  log("INFO", "FIRING");
 }
 
 function formatCountdown(target: Date): string {
