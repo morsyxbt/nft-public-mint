@@ -5,7 +5,7 @@ import { info, ok } from "./logger";
 // methods, so we warm with eth_sendRawTransaction and ignore the error — the
 // handshake is the point, not the response.
 export async function warmConnections(rpcUrls: string[]): Promise<void> {
-  info("Warming connections...");
+  info("Warming RPC connections...");
 
   await Promise.all(
     rpcUrls.map((url) =>
@@ -24,5 +24,5 @@ export async function warmConnections(rpcUrls: string[]): Promise<void> {
     )
   );
 
-  ok("Connections hot.");
+  ok("Connections ready.");
 }

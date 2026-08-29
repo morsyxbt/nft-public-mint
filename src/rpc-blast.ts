@@ -1,5 +1,4 @@
 import { keccak256 } from "ethers";
-import { error, ok, warn } from "./logger";
 
 export interface RpcEndpoint {
   url: string;
@@ -95,23 +94,15 @@ export function blastToAll(
         try {
           const json = (await s.value.json()) as any;
           if (json.result) {
-            ok(`[${i}] ${ep.label}  TX: ${json.result}`);
             results.push({ label: ep.label, txHash: json.result, error: null });
           } else if (json.error) {
             const errMsg = json.error.message || JSON.stringify(json.error);
-            if (errMsg.includes("already known") || errMsg.includes("already exists")) {
-              warn(`[${i}] ${ep.label}  already known`);
-            } else {
-              error(`[${i}] ${ep.label}  ${errMsg}`);
-            }
             results.push({ label: ep.label, txHash: null, error: errMsg });
           }
         } catch (err: any) {
-          error(`[${i}] ${ep.label}  ${err.message}`);
           results.push({ label: ep.label, txHash: null, error: err.message });
         }
       } else {
-        error(`[${i}] ${ep.label}  ${s.reason?.message || s.reason}`);
         results.push({ label: ep.label, txHash: null, error: s.reason?.message || String(s.reason) });
       }
     }

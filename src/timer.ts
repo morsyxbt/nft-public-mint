@@ -13,12 +13,6 @@ export async function waitForMintTime(mintTime: Date, earlyFireMs: number = 0): 
     return;
   }
 
-  info(`Mint time: ${mintTime.toISOString()}`);
-  if (earlyFireMs > 0) {
-    info(`Early fire: ${earlyFireMs}ms before mint → firing at ${fireTime.toISOString()}`);
-  }
-  info(`Now: ${now.toISOString()} | waiting ${Math.ceil(diff / 1000)}s`);
-
   // If more than 10 seconds away, show a countdown spinner
   if (diff > 10000) {
     const spinner = ora({

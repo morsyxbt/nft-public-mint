@@ -105,7 +105,7 @@ export async function runWizard(): Promise<void> {
   const endsAt = new Date(drop.endTime * 1000);
   const live = nowMs() >= startsAt.getTime() && nowMs() < endsAt.getTime();
 
-  ok("Built calldata from on-chain SeaDrop — no OpenSea token needed");
+  ok("Built calldata from on-chain SeaDrop state");
   detail(`Fee recipient: ${mintPlan.feeRecipient}`);
   detail(`Price: ${formatEther(drop.mintPrice)} × ${quantity} = ${formatEther(mintPlan.value)} per wallet`);
   detail(`Max per wallet: ${drop.maxTotalMintableByWallet || "unlimited"}`);
@@ -208,8 +208,6 @@ export async function runWizard(): Promise<void> {
   line("Gas", `${maxFeeGwei} / ${priorityGwei} gwei · limit ${gasLimit}`);
   line("Timing", timingLabel);
 
-  info("Firing immediately.");
-
   // Hand stdin back so readline never interleaves with the blast logging.
   closePrompts();
 
@@ -229,10 +227,6 @@ export async function runWizard(): Promise<void> {
 // ── Steps ───────────────────────────────────────────────────────────────
 
 async function promptKeys(): Promise<string[]> {
-  section("Private keys");
-  detail("Paste one key per line — typing is hidden. Blank line when done.");
-  detail("Each key is confirmed by its wallet address. Nothing is saved to disk.");
-
   const keys: string[] = [];
   const seen = new Set<string>();
 
@@ -353,17 +347,8 @@ async function promptTarget(
 }
 
 async function promptRpc(profile: ChainProfile): Promise<string[]> {
-  section("RPC endpoints");
-  detail("A private RPC (Alchemy / QuickNode / Infura) is what wins a contested mint.");
-  if (profile.rpc.alchemyHost) {
-    detail(`Paste a full URL, or just your Alchemy key → https://${profile.rpc.alchemyHost}/v2/<key>`);
-  }
-  detail("Comma-separate several to blast to all of them.");
-
   const fromEnv = privateRpcsFromEnv(profile.key);
   if (fromEnv.length > 0) {
-    detail(`  .env already has: ${fromEnv.map(maskRpc).join(", ")}`);
-    ok(`Using .env RPC${fromEnv.length > 1 ? "s" : ""} — skipping prompt.`);
     return fromEnv;
   }
   warn(`Nothing in .env for ${profile.name}. Blank = public nodes only.`);
@@ -404,7 +389,7 @@ async function promptTiming(
 
   for (;;) {
     const raw = await askText(
-      `Fire time (e.g. 'August 29 at 2:00 AM GMT+7'; Enter = stage start ${toIST(at)} IST; 'now' = fire immediately)`,
+      `Fire time ('August 29 at 2:00 AM GMT+7' or 'now')`,
       def
     );
     const trimmed = raw.trim().toLowerCase();
@@ -465,8 +450,6 @@ async function loadWalletsFromFile(path: string): Promise<string[]> {
   if (keys.length === 0) {
     throw new Error(`No valid private keys found in ${path}`);
   }
-
-  detail(`${keys.length} wallet(s) loaded from ${path}`);
   return keys;
 }
 
@@ -529,7 +512,6 @@ async function resolveWalletKeys(): Promise<string[]> {
 
   try {
     await fs.access(walletsPath);
-    detail(`Found wallets.json in ${cwd}`);
     return await loadWalletsFromFile(walletsPath);
   } catch {
     detail("No wallets.json found — enter keys interactively.");

@@ -7,7 +7,7 @@
 // until the API hands over calldata roughly a second after the stage starts.
 
 import { performance } from "perf_hooks";
-import { JsonRpcProvider, Wallet, formatEther } from "ethers";
+import { JsonRpcProvider, Wallet } from "ethers";
 import { blastToAll, parseRpcEndpoints, prepareBlast, waitForReceipt, PreparedBlast } from "./rpc-blast";
 import { warmConnections } from "./connection-warmer";
 import { waitForMintTime } from "./timer";
@@ -29,7 +29,7 @@ export interface LocalSnipeOpts {
 
 export async function localPublicSnipe(opts: LocalSnipeOpts): Promise<void> {
   const {
-    nftContract, quantity, walletKeys, rpcUrls,
+    walletKeys, rpcUrls,
     maxFeePerGas, maxPriorityFee, gasLimit, targetStart, plan,
   } = opts;
 
@@ -37,14 +37,9 @@ export async function localPublicSnipe(opts: LocalSnipeOpts): Promise<void> {
   const endpoints = parseRpcEndpoints(rpcUrls);
   const wallets = walletKeys.map((k) => new Wallet(k, provider));
 
-  section("LOCAL PUBLIC MINT (no OpenSea)");
-  detail(`SeaDrop:       ${plan.to}`);
-  detail(`NFT:           ${nftContract}`);
-  detail(`Fee recipient: ${plan.feeRecipient}`);
-  detail(
-    `Price:         ${formatEther(plan.drop.mintPrice)} × ${quantity} = ${formatEther(plan.value)} per wallet`
-  );
-  detail(`Calldata:      ${(plan.data.length - 2) / 2} bytes (identical for every wallet)`);
+  section("Mint");
+  detail(`SeaDrop:  ${plan.to}`);
+  detail(`Calldata:  ${(plan.data.length - 2) / 2} bytes`);
 
   // ── Warm sockets and pre-fetch everything the signature depends on ──
   await warmConnections(rpcUrls);
@@ -75,7 +70,7 @@ export async function localPublicSnipe(opts: LocalSnipeOpts): Promise<void> {
     prepared.push({ idx: i, address: wallets[i].address, blast: prepareBlast(rawTx) });
   }
 
-  ok(`${prepared.length} tx(s) signed and serialised in ${(performance.now() - signStart).toFixed(1)}ms — nothing left to compute at fire time`);
+  ok(`${prepared.length} tx(s) signed in ${(performance.now() - signStart).toFixed(1)}ms`);
 
   // ── Wait for the stage, then blast pre-built bytes ──
   if (targetStart) {
@@ -87,16 +82,14 @@ export async function localPublicSnipe(opts: LocalSnipeOpts): Promise<void> {
   const stageStartMs = targetStart ? targetStart.getTime() : Date.now();
   const dispatchStart = performance.now();
 
-  const fired = prepared.map(({ idx, address, blast }) => {
+  const fired = prepared.map(({ idx, blast }) => {
     const { txHash, responsePromise } = blastToAll(blast, endpoints);
-    return { idx, address, txHash, responsePromise };
+    return { idx, txHash, responsePromise };
   });
 
   const dispatchMs = (performance.now() - dispatchStart).toFixed(2);
   const sinceStage = Math.max(0, Date.now() - stageStartMs);
-  ok(
-    `Dispatched ${fired.length} tx(s) in ${dispatchMs}ms (+${sinceStage}ms after stage)`
-  );
+  ok(`Broadcast ${fired.length} tx(s) to ${endpoints.length} endpoint(s) in ${dispatchMs}ms (+${sinceStage}ms after stage)`);
   for (const f of fired) {
     detail(`[W${f.idx}] ${f.txHash}`);
   }
@@ -122,12 +115,13 @@ export async function localPublicSnipe(opts: LocalSnipeOpts): Promise<void> {
   }
 
   if (accepted.length === 0) {
-    error("NOTHING WAS BROADCAST — no receipts to wait for.");
+    error("No transaction was accepted by any RPC.");
     return;
   }
 
   // ── Receipts (only for txs an endpoint actually accepted) ──
-  info("Waiting for receipts...");
+  info(`Confirming ${accepted.length} tx(s)...`);
+  let confirmed = 0;
   await Promise.all(
     accepted.map(async ({ idx, txHash }) => {
       const receipt = await waitForReceipt(txHash, rpcUrls[0], 60_000);
@@ -136,12 +130,19 @@ export async function localPublicSnipe(opts: LocalSnipeOpts): Promise<void> {
         return;
       }
       const success = receipt.status === "SUCCESS";
-      const msg = `[W${idx}] Block: ${receipt.block} | Pos: ${receipt.position} | ${receipt.status} | Gas: ${receipt.gasUsed}`;
-      if (success) ok(msg);
-      else error(msg);
-      detail(`[W${idx}] Track: ${explorerTx(chainId, txHash)}`);
+      const msg = `[W${idx}] Block ${receipt.block} | Gas ${receipt.gasUsed} | ${receipt.status} | ${explorerTx(chainId, txHash)}`;
+      if (success) {
+        confirmed++;
+        ok(msg);
+      } else {
+        error(msg);
+      }
     })
   );
 
-  section("LOCAL PUBLIC MINT COMPLETE");
+  if (confirmed > 0) {
+    ok(`Mint complete — ${confirmed}/${fired.length} confirmed`);
+  } else {
+    error(`Mint complete — 0/${fired.length} confirmed`);
+  }
 }
