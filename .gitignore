@@ -12,3 +12,6 @@ wallets/
 wallets.json
 keys.txt
 *.key
+
+# Telegram bot state (queued/replayed mint jobs + update offset)
+bot-state.json

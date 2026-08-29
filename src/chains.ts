@@ -73,6 +73,14 @@ export const CHAINS: ChainProfile[] = [
 
 const DEFAULT_EXPLORER = "https://basescan.org";
 
+// Short aliases accepted for --chain / CHAIN / Telegram input, so typos like
+// "ethereum" vs "ether" can't silently fail. Full keys still work.
+const CHAIN_ALIASES: Record<string, string> = {
+  eth: "ethereum",
+  robin: "robinhood",
+  rh: "robinhood",
+};
+
 // Resolve a chain by its numeric chainId (from the live network) or by its
 // string key (--chain / CHAIN). Returns undefined for unknown chains.
 export function resolveChain(
@@ -80,7 +88,8 @@ export function resolveChain(
 ): ChainProfile | undefined {
   if (idOrKey === null || idOrKey === undefined) return undefined;
   if (typeof idOrKey === "string") {
-    const key = idOrKey.trim().toLowerCase();
+    const raw = idOrKey.trim().toLowerCase();
+    const key = CHAIN_ALIASES[raw] ?? raw;
     return CHAINS.find((c) => c.key === key);
   }
   const id = Number(idOrKey);

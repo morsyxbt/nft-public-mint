@@ -499,6 +499,82 @@ function line(label: string, value: string): void {
 
 // ── JSON wallet loader ─────────────────────────────────────────────────
 
+export interface HeadlessMintOpts {
+  slug: string; // OpenSea collection slug (also accepts a url or 0x address)
+  chainKey: string; // accepts aliases: eth | robin | base | ...
+  quantity: number;
+  fireTime: string | null; // "now", a date string, or null (= now)
+}
+
+// Non-interactive mint path used by the Telegram bot. Reuses the same on-chain
+// plan building as runWizard but takes parameters instead of prompts. Wallets
+// come from wallets.json and RPC from .env, exactly like the wizard.
+export async function runHeadless(opts: HeadlessMintOpts): Promise<void> {
+  await syncClock();
+  const walletKeys = await resolveWalletKeys();
+
+  const chainProfile = resolveChain(opts.chainKey);
+  if (!chainProfile) throw new Error(`Unknown chain: ${opts.chainKey}`);
+  const chainKey = chainProfile.key;
+
+  // ── Resolve target (address or slug) ──
+  const parsed = parseNftLink(opts.slug);
+  let target: { contract: string; label: string; chainKey: string };
+  if (parsed.kind === "address") {
+    const addr = parsed.value.startsWith("0x") ? parsed.value : `0x${parsed.value}`;
+    let contract: string;
+    try {
+      contract = getAddress(addr.toLowerCase());
+    } catch {
+      throw new Error(`Not a valid contract address: ${parsed.value}`);
+    }
+    target = { contract, label: short(contract), chainKey };
+  } else {
+    const apiKey = (process.env.OPENSEA_API_KEY || "").trim();
+    const info = await resolveSlug(parsed.value, apiKey || undefined, chainKey);
+    target = { contract: getAddress(info.contractAddress.toLowerCase()), label: info.name || parsed.value, chainKey };
+  }
+  const nftContract = target.contract;
+
+  // ── RPC from .env ──
+  const { urls: candidateRpcs } = resolveRpcsForChain(chainKey, []);
+  const plan = await planRpcs(candidateRpcs, chainProfile.chainId);
+  if (plan.urls.length === 0) throw new Error(`No usable RPC endpoint for ${chainProfile.name}`);
+  const rpcUrls = plan.urls;
+
+  // ── Drop ──
+  const mintPlan = await buildLocalMintPlan(rpcUrls[0], nftContract, opts.quantity);
+  if (!mintPlan) throw new Error(`No SeaDrop public drop readable for ${nftContract}`);
+
+  // ── Gas from env (no prompts) ──
+  const maxFeeGwei = Number(process.env.MAX_FEE_PER_GAS || (chainKey === "ethereum" ? 80 : 2));
+  const priorityGwei = Number(process.env.MAX_PRIORITY_FEE || (chainKey === "ethereum" ? 5 : 0.05));
+  const maxFeePerGas = gweiToWei(maxFeeGwei);
+  const maxPriorityFee = gweiToWei(priorityGwei);
+  const gasLimit = parseInt(process.env.GAS_LIMIT || "0", 10) || 250_000;
+
+  // ── Timing ──
+  let targetStart: Date | null = null;
+  if (opts.fireTime && opts.fireTime.trim().toLowerCase() !== "now") {
+    targetStart = parseFireTime(opts.fireTime);
+  }
+
+  log("INFO", `Target: ${target.label} (${nftContract}) on ${chainProfile.name}`);
+  log("INFO", `Quantity: ${opts.quantity} per wallet → ${opts.quantity * walletKeys.length} total`);
+
+  await localPublicSnipe({
+    nftContract,
+    quantity: opts.quantity,
+    walletKeys,
+    rpcUrls,
+    maxFeePerGas,
+    maxPriorityFee,
+    gasLimit,
+    targetStart,
+    plan: mintPlan,
+  });
+}
+
 async function resolveWalletKeys(): Promise<string[]> {
   const fs = await import("fs/promises");
   const cwd = process.cwd();

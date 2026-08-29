@@ -180,6 +180,35 @@ code changes needed.
 
 ---
 
+## Telegram bot
+
+Run the minter headlessly and trigger it from Telegram:
+
+```bash
+npm start -- --telegram
+```
+
+Set `TELEGRAM_BOT_TOKEN` (from @BotFather) and `ALLOWED_CHAT_ID` in `.env`. The
+bot only responds to chats listed in `ALLOWED_CHAT_ID` (comma-separated); leave it
+empty to allow any chat (not recommended).
+
+Send a command in this format:
+
+```
+/mint <slug> <chain> <qty> <time>
+/mint salty-cat eth 4 now
+/mint foo robin 2 August 29 at 2:00 AM GMT+7
+```
+
+- `slug` is the OpenSea collection slug (the part after `/collection/` in the URL).
+  A full OpenSea URL or a `0x` contract address also still works.
+- `chain` accepts short aliases to avoid typos: `eth`, `robin`, `rh` (and `base`).
+- `time` is `now` or any date string the mint understands; the rest of the words
+  after the quantity are treated as the time.
+- Wallets come from `wallets.json` and RPC from `.env`, exactly like the wizard.
+
+---
+
 ## Allowlist / FCFS mints
 
 Not supported here, and it isn't an oversight. An allowlist stage uses SeaDrop's

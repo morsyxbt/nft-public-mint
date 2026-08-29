@@ -104,18 +104,22 @@ export async function localPublicSnipe(opts: LocalSnipeOpts): Promise<void> {
   );
   const rejected = settled.filter((s) => !accepted.includes(s));
 
+  const allReasons: string[] = [];
   for (const { idx, results } of rejected) {
     const reasons = [...new Set(results.map((r) => r.error).filter(Boolean))] as string[];
     log("ERROR", `[W${idx}] REJECTED by every RPC — never broadcast.`);
-    for (const reason of reasons) log("ERROR", reason);
+    for (const reason of reasons) {
+      log("ERROR", reason);
+      allReasons.push(reason);
+    }
     if (reasons.some((r) => r.includes("less than block base fee"))) {
       log("WARN", "Max fee is under the chain's base fee. Raise it and re-run.");
     }
   }
 
   if (accepted.length === 0) {
-    log("ERROR", "No transaction was accepted by any RPC.");
-    return;
+    const summary = allReasons[0] ? ` — ${allReasons[0]}` : "";
+    throw new Error(`No transaction was accepted by any RPC${summary}`);
   }
 
   // ── Receipts (only for txs an endpoint actually accepted) ──
@@ -139,9 +143,15 @@ export async function localPublicSnipe(opts: LocalSnipeOpts): Promise<void> {
     })
   );
 
-  if (confirmed > 0) {
+  if (confirmed === fired.length) {
     log("INFO", `Mint complete — ${confirmed}/${fired.length} confirmed`);
+  } else if (confirmed > 0) {
+    const failedCount = fired.length - confirmed;
+    const reason = allReasons[0] ? `: ${allReasons[0]}` : "";
+    throw new Error(
+      `Minted ${confirmed}/${fired.length} — ${failedCount} wallet${failedCount > 1 ? "s" : ""} failed${reason}`
+    );
   } else {
-    log("ERROR", `Mint complete — 0/${fired.length} confirmed`);
+    throw new Error(`Mint failed — 0/${fired.length} confirmed (reverted or timed out)`);
   }
 }
