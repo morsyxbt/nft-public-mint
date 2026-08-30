@@ -21,7 +21,7 @@ Usage
   npm start -- --telegram  run the Telegram bot (needs TELEGRAM_BOT_TOKEN)
   npm start -- --help      show this message
 
-Wallets are loaded from wallets.json in the current folder if it exists.
+Wallets are loaded from the SECRET_WALLET env var (comma-separated). Leave it empty to type keys interactively.
 Format: ["0xabc...", "0xdef..."]
 
 Everything else is asked interactively: chain, quantity, NFT link, RPC,

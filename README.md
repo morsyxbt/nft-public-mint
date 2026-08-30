@@ -204,7 +204,7 @@ Send a command in this format:
 - `chain` accepts short aliases to avoid typos: `eth`, `robin`, `rh` (and `base`).
 - `time` is `now` or any date string the mint understands; the rest of the words
   after the quantity are treated as the time.
-- Wallets come from `wallets.json` and RPC from `.env`, exactly like the wizard.
+- Wallets come from `SECRET_WALLET` (comma-separated keys in `.env`) and RPC from `.env`, exactly like the wizard.
 
 Mints run concurrently — send several `/mint` commands and they all fire in parallel. Every job and the last-seen Telegram `update_id` are written to `bot-state.json`, so if the bot restarts or crashes it resumes unfinished jobs and never re-reads an already-handled message — you don't resend anything.
 
