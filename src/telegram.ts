@@ -89,11 +89,9 @@ async function reply(
   token: string,
   chatId: number,
   text: string,
-  parseMode?: "HTML"
 ): Promise<void> {
-  const body: Record<string, unknown> = { chat_id: chatId, text };
-  if (parseMode) body.parse_mode = parseMode;
-  await api(token, "sendMessage", { ...body, disable_web_page_preview: true });
+  const body: Record<string, unknown> = { chat_id: chatId, text, parse_mode: "HTML", disable_web_page_preview: true };
+  await api(token, "sendMessage", body);
 
 }
 
@@ -173,7 +171,6 @@ async function handleMint(
     token,
     chatId,
     `Minting ${quantity} ${slugLink} on ${chainName(chain)} (time: ${fireTime})...`,
-    "HTML"
   );
   // Fire-and-forget: the loop keeps processing the next message immediately.
   void runJob(token, state, job);
