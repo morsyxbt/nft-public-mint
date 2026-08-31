@@ -149,7 +149,7 @@ export async function localPublicSnipe(opts: LocalSnipeOpts): Promise<void> {
     const failedCount = fired.length - confirmed;
     const reason = allReasons[0] ? `: ${allReasons[0]}` : "";
     throw new Error(
-      `Minted ${confirmed}/${fired.length} — ${failedCount} wallet${failedCount > 1 ? "s" : ""} failed${reason}`
+      `Only ${confirmed}/${fired.length} minted. ${failedCount} wallet${failedCount > 1 ? "s" : ""} failed${reason}.`
     );
   } else {
     throw new Error(`Mint failed — 0/${fired.length} confirmed (reverted or timed out)`);

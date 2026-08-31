@@ -85,8 +85,21 @@ async function api(token: string, method: string, body?: unknown): Promise<any> 
   return res.json();
 }
 
-async function reply(token: string, chatId: number, text: string): Promise<void> {
-  await api(token, "sendMessage", { chat_id: chatId, text });
+async function reply(
+  token: string,
+  chatId: number,
+  text: string,
+  parseMode?: "HTML"
+): Promise<void> {
+  const body: Record<string, unknown> = { chat_id: chatId, text };
+  if (parseMode) body.parse_mode = parseMode;
+  await api(token, "sendMessage", { ...body, disable_web_page_preview: true });
+
+}
+
+const CHAIN_DISPLAY: Record<string, string> = { robin: "robinhood" };
+function chainName(chainKey: string): string {
+  return CHAIN_DISPLAY[chainKey] ?? chainKey;
 }
 
 // Run a single job in the background and update its persisted status.
@@ -155,7 +168,13 @@ async function handleMint(
   state.jobs[updateId] = job;
   saveState(state);
 
-  await reply(token, chatId, `Minting ${quantity} on ${chain} (time: ${fireTime})...`);
+  const slugLink = `<a href="https://opensea.io/collection/${slug}">${slug}</a>`;
+  await reply(
+    token,
+    chatId,
+    `Minting ${quantity} ${slugLink} on ${chainName(chain)} (time: ${fireTime})...`,
+    "HTML"
+  );
   // Fire-and-forget: the loop keeps processing the next message immediately.
   void runJob(token, state, job);
 }
