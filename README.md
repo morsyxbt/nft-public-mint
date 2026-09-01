@@ -43,3 +43,12 @@ Set `TELEGRAM_BOT_TOKEN` and `ALLOWED_CHAT_ID` in `.env`. Send `/mint <qty> <slu
 | Ethereum | 1 |
 | Base | 8453 |
 | Robinhood Chain | 4663 |
+
+## Security
+
+Keys are pasted at run time, held in memory only, never written to disk or sent anywhere except as a locally-signed transaction.
+
+## Donate
+
+ETH/Base: `0x965244d54FFdf69A287e122090d320ae648f4cf8`
+SOL: `5nCE7C7771Ar6BT4ffm8W6MvDdci4AgVNrvMoELXP61T`
