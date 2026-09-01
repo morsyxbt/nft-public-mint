@@ -90,9 +90,13 @@ async function reply(
   chatId: number,
   text: string,
 ): Promise<void> {
-  const body: Record<string, unknown> = { chat_id: chatId, text, parse_mode: "HTML", disable_web_page_preview: true };
+  const body: Record<string, unknown> = {
+    chat_id: chatId,
+    text,
+    parse_mode: "HTML",
+    link_preview_options: { is_disabled: true },
+  };
   await api(token, "sendMessage", body);
-
 }
 
 const CHAIN_DISPLAY: Record<string, string> = { robin: "robinhood" };
