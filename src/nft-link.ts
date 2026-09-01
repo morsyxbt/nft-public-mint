@@ -31,6 +31,7 @@ function isContractAddress(value: string): boolean {
 }
 
 export function parseNftLink(input: string): LinkTarget {
+  if (input == null) throw new Error("No NFT link provided");
   const raw = input.trim().replace(/\/+$/, "");
   if (!raw) throw new Error("No NFT link provided");
 

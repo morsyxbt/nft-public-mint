@@ -1,4 +1,3 @@
-import chalk from "chalk";
 import { keccak256 } from "ethers";
 
 export interface RpcEndpoint {
@@ -95,23 +94,15 @@ export function blastToAll(
         try {
           const json = (await s.value.json()) as any;
           if (json.result) {
-            console.log(chalk.green(`  [${i}] ${ep.label}  TX: ${json.result}`));
             results.push({ label: ep.label, txHash: json.result, error: null });
           } else if (json.error) {
             const errMsg = json.error.message || JSON.stringify(json.error);
-            if (errMsg.includes("already known") || errMsg.includes("already exists")) {
-              console.log(chalk.yellow(`  [${i}] ${ep.label}  ERR: already known`));
-            } else {
-              console.log(chalk.red(`  [${i}] ${ep.label}  ERR: ${errMsg}`));
-            }
             results.push({ label: ep.label, txHash: null, error: errMsg });
           }
         } catch (err: any) {
-          console.log(chalk.red(`  [${i}] ${ep.label}  ERR: ${err.message}`));
           results.push({ label: ep.label, txHash: null, error: err.message });
         }
       } else {
-        console.log(chalk.red(`  [${i}] ${ep.label}  ERR: ${s.reason?.message || s.reason}`));
         results.push({ label: ep.label, txHash: null, error: s.reason?.message || String(s.reason) });
       }
     }

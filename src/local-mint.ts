@@ -6,14 +6,14 @@
 // encoding. That is strictly faster than the OpenSea path, which cannot sign
 // until the API hands over calldata roughly a second after the stage starts.
 
-import chalk from "chalk";
 import { performance } from "perf_hooks";
-import { JsonRpcProvider, Wallet, formatEther } from "ethers";
+import { JsonRpcProvider, Wallet } from "ethers";
 import { blastToAll, parseRpcEndpoints, prepareBlast, waitForReceipt, PreparedBlast } from "./rpc-blast";
 import { warmConnections } from "./connection-warmer";
 import { waitForMintTime } from "./timer";
 import { explorerTx } from "./chains";
 import { LocalMintPlan } from "./seadrop-public";
+import { log } from "./logger";
 
 export interface LocalSnipeOpts {
   nftContract: string;
@@ -29,7 +29,7 @@ export interface LocalSnipeOpts {
 
 export async function localPublicSnipe(opts: LocalSnipeOpts): Promise<void> {
   const {
-    nftContract, quantity, walletKeys, rpcUrls,
+    walletKeys, rpcUrls,
     maxFeePerGas, maxPriorityFee, gasLimit, targetStart, plan,
   } = opts;
 
@@ -37,16 +37,8 @@ export async function localPublicSnipe(opts: LocalSnipeOpts): Promise<void> {
   const endpoints = parseRpcEndpoints(rpcUrls);
   const wallets = walletKeys.map((k) => new Wallet(k, provider));
 
-  console.log(chalk.bold.magenta("\n── LOCAL PUBLIC MINT (no OpenSea) ──"));
-  console.log(chalk.gray(`  SeaDrop:       ${plan.to}`));
-  console.log(chalk.gray(`  NFT:           ${nftContract}`));
-  console.log(chalk.gray(`  Fee recipient: ${plan.feeRecipient}`));
-  console.log(
-    chalk.gray(
-      `  Price:         ${formatEther(plan.drop.mintPrice)} × ${quantity} = ${formatEther(plan.value)} per wallet`
-    )
-  );
-  console.log(chalk.gray(`  Calldata:      ${(plan.data.length - 2) / 2} bytes (identical for every wallet)`));
+  log("INFO", `SeaDrop: ${plan.to}`);
+  log("INFO", `Calldata: ${(plan.data.length - 2) / 2} bytes`);
 
   // ── Warm sockets and pre-fetch everything the signature depends on ──
   await warmConnections(rpcUrls);
@@ -56,7 +48,7 @@ export async function localPublicSnipe(opts: LocalSnipeOpts): Promise<void> {
     provider.getNetwork(),
   ]);
   const chainId = network.chainId;
-  console.log(chalk.gray(`  Nonces: [${nonces.join(", ")}] | chainId: ${chainId}`));
+  log("INFO", `Nonces: [${nonces.join(", ")}] | chainId: ${chainId}`);
 
   // ── Sign everything now, well before the stage opens ──
   const signStart = performance.now();
@@ -77,34 +69,28 @@ export async function localPublicSnipe(opts: LocalSnipeOpts): Promise<void> {
     prepared.push({ idx: i, address: wallets[i].address, blast: prepareBlast(rawTx) });
   }
 
-  console.log(
-    chalk.green(
-      `  ✓ ${prepared.length} tx(s) signed and serialised in ${(performance.now() - signStart).toFixed(1)}ms — nothing left to compute at fire time`
-    )
-  );
+  log("INFO", `${prepared.length} tx(s) signed in ${(performance.now() - signStart).toFixed(1)}ms`);
 
   // ── Wait for the stage, then blast pre-built bytes ──
   if (targetStart) {
     await waitForMintTime(targetStart, 0);
   } else {
-    console.log(chalk.bold.yellow("\n  🚀 Firing immediately..."));
+    log("INFO", "Firing immediately.");
   }
 
   const stageStartMs = targetStart ? targetStart.getTime() : Date.now();
   const dispatchStart = performance.now();
 
-  const fired = prepared.map(({ idx, address, blast }) => {
+  const fired = prepared.map(({ idx, blast }) => {
     const { txHash, responsePromise } = blastToAll(blast, endpoints);
-    return { idx, address, txHash, responsePromise };
+    return { idx, txHash, responsePromise };
   });
 
   const dispatchMs = (performance.now() - dispatchStart).toFixed(2);
   const sinceStage = Math.max(0, Date.now() - stageStartMs);
-  console.log(
-    chalk.bold.green(`  DISPATCHED ${fired.length} tx(s) (${dispatchMs}ms, +${sinceStage}ms after stage)`)
-  );
+  log("INFO", `Broadcast ${fired.length} tx(s) to ${endpoints.length} endpoint(s) in ${dispatchMs}ms (+${sinceStage}ms after stage)`);
   for (const f of fired) {
-    console.log(chalk.gray(`    [W${f.idx}] ${f.txHash}`));
+    log("INFO", `[W${f.idx}]: ${f.txHash}`);
   }
 
   // Dispatch only means "bytes written". Find out whether any endpoint actually
@@ -118,36 +104,54 @@ export async function localPublicSnipe(opts: LocalSnipeOpts): Promise<void> {
   );
   const rejected = settled.filter((s) => !accepted.includes(s));
 
+  const allReasons: string[] = [];
   for (const { idx, results } of rejected) {
-    const reasons = [...new Set(results.map((r) => r.error).filter(Boolean))];
-    console.log(chalk.bold.red(`\n  ✗ [W${idx}] REJECTED by every RPC — never broadcast.`));
-    for (const reason of reasons) console.log(chalk.red(`      ${reason}`));
-    if (reasons.some((r) => (r ?? "").includes("less than block base fee"))) {
-      console.log(chalk.yellow("      → Your max fee is under the chain's base fee. Raise it and re-run."));
+    const reasons = [...new Set(results.map((r) => r.error).filter(Boolean))] as string[];
+    log("ERROR", `[W${idx}] REJECTED by every RPC — never broadcast.`);
+    for (const reason of reasons) {
+      log("ERROR", reason);
+      allReasons.push(reason);
+    }
+    if (reasons.some((r) => r.includes("less than block base fee"))) {
+      log("WARN", "Max fee is under the chain's base fee. Raise it and re-run.");
     }
   }
 
   if (accepted.length === 0) {
-    console.log(chalk.bold.red("\n===== NOTHING WAS BROADCAST — no receipts to wait for =====\n"));
-    return;
+    const summary = allReasons[0] ? ` — ${allReasons[0]}` : "";
+    throw new Error(`No transaction was accepted by any RPC${summary}`);
   }
 
   // ── Receipts (only for txs an endpoint actually accepted) ──
-  console.log(chalk.gray("\n  Waiting for receipts..."));
+  log("INFO", `Confirming ${accepted.length} tx(s)...`);
+  let confirmed = 0;
   await Promise.all(
     accepted.map(async ({ idx, txHash }) => {
       const receipt = await waitForReceipt(txHash, rpcUrls[0], 60_000);
       if (!receipt) {
-        console.log(chalk.yellow(`  [W${idx}] TIMEOUT — check: ${explorerTx(chainId, txHash)}`));
+        log("WARN", `[W${idx}] TIMEOUT — ${explorerTx(chainId, txHash)}`);
         return;
       }
-      const color = receipt.status === "SUCCESS" ? chalk.bold.green : chalk.bold.red;
-      console.log(
-        color(`  [W${idx}] Block: ${receipt.block} | Pos: ${receipt.position} | ${receipt.status} | Gas: ${receipt.gasUsed}`)
-      );
-      console.log(chalk.gray(`  [W${idx}] Track: ${explorerTx(chainId, txHash)}`));
+      const success = receipt.status === "SUCCESS";
+      const msg = `[W${idx}] Block ${receipt.block} | Gas ${receipt.gasUsed} | ${receipt.status} | ${explorerTx(chainId, txHash)}`;
+      if (success) {
+        confirmed++;
+        log("INFO", msg);
+      } else {
+        log("ERROR", msg);
+      }
     })
   );
 
-  console.log(chalk.bold.white("\n===== LOCAL PUBLIC MINT COMPLETE ====="));
+  if (confirmed === fired.length) {
+    log("INFO", `Mint complete — ${confirmed}/${fired.length} confirmed`);
+  } else if (confirmed > 0) {
+    const failedCount = fired.length - confirmed;
+    const reason = allReasons[0] ? `: ${allReasons[0]}` : "";
+    throw new Error(
+      `Only ${confirmed}/${fired.length} minted. ${failedCount} wallet${failedCount > 1 ? "s" : ""} failed${reason}.`
+    );
+  } else {
+    throw new Error(`Mint failed — 0/${fired.length} confirmed (reverted or timed out)`);
+  }
 }

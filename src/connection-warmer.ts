@@ -1,11 +1,11 @@
-import chalk from "chalk";
+import { log } from "./logger";
 
 // Pre-establish TCP/TLS to every RPC so the first real request doesn't pay for
 // a handshake. Some endpoints (Base's sequencer, for one) only accept send
 // methods, so we warm with eth_sendRawTransaction and ignore the error — the
 // handshake is the point, not the response.
 export async function warmConnections(rpcUrls: string[]): Promise<void> {
-  console.log(chalk.gray("  Warming connections..."));
+  log("INFO", "Warming RPC connections...");
 
   await Promise.all(
     rpcUrls.map((url) =>
@@ -24,5 +24,5 @@ export async function warmConnections(rpcUrls: string[]): Promise<void> {
     )
   );
 
-  console.log(chalk.green("  Connections hot."));
+  log("INFO", "Connections ready.");
 }

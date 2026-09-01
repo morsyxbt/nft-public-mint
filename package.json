@@ -1,10 +1,10 @@
 {
-  "name": "nft-public-mint",
+  "name": "nft-minter",
   "version": "1.0.0",
-  "description": "CLI sniper for public SeaDrop NFT mints — builds calldata on-chain, no OpenSea token required",
+  "description": "CLI sniper for public SeaDrop NFT mints. Builds calldata on-chain.",
   "main": "dist/index.js",
   "bin": {
-    "nft-public-mint": "dist/index.js"
+    "nft-minter": "dist/index.js"
   },
   "scripts": {
     "build": "tsc",

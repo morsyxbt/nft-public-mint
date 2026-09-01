@@ -7,6 +7,7 @@
 
 import readline from "readline";
 import chalk from "chalk";
+import { log } from "./logger";
 
 let rl: readline.Interface | null = null;
 let shuttingDown = false;
@@ -44,7 +45,7 @@ function getRl(): readline.Interface {
     // pending question never resolves and the process just dies quietly.
     rl.on("close", () => {
       if (waiter && !shuttingDown) {
-        console.log(chalk.yellow("\n  Input closed — aborting. Nothing was sent.\n"));
+        log("WARN", "Input closed — aborting. Nothing was sent.");
         process.exit(130);
       }
     });
@@ -128,10 +129,10 @@ export async function askChoice<T>(
     );
     const idx = parseInt(raw, 10) - 1;
     if (Number.isInteger(idx) && idx >= 0 && idx < choices.length) {
-      console.log(chalk.green(`  ✓ ${choices[idx].label}`));
+      log("INFO", choices[idx].label);
       return choices[idx].value;
     }
-    console.log(chalk.red(`  ✗ Enter a number between 1 and ${choices.length}.`));
+    log("ERROR", `Enter a number between 1 and ${choices.length}.`);
   }
 }
 
@@ -148,10 +149,8 @@ export async function askNumber(
     );
     const n = Number(raw);
     if (Number.isFinite(n) && n >= min && n <= max) return n;
-    console.log(
-      chalk.red(
-        `  ✗ Enter a number${min > -Infinity ? ` ≥ ${min}` : ""}${max < Infinity ? ` and ≤ ${max}` : ""}.`
-      )
+    log("ERROR", 
+      `Enter a number${min > -Infinity ? ` ≥ ${min}` : ""}${max < Infinity ? ` and ≤ ${max}` : ""}.`
     );
   }
 }
@@ -169,6 +168,6 @@ export async function askYesNo(question: string, defaultYes = false): Promise<bo
     ).toLowerCase();
     if (raw === "y" || raw === "yes") return true;
     if (raw === "n" || raw === "no") return false;
-    console.log(chalk.red("  ✗ Answer y or n."));
+    log("ERROR", "Answer y or n.");
   }
 }
