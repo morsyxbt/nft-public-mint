@@ -100,6 +100,10 @@ async function reply(
 }
 
 const CHAIN_DISPLAY: Record<string, string> = { robin: "robinhood" };
+const VALID_CHAINS = new Set(["eth", "robin", "rh", "base", "ethereum", "robinhood"]);
+function isChain(token: string): boolean {
+  return VALID_CHAINS.has(token.toLowerCase());
+}
 function chainName(chainKey: string): string {
   return CHAIN_DISPLAY[chainKey] ?? chainKey;
 }
@@ -145,12 +149,14 @@ async function handleMint(
   if (state.jobs[updateId]) return;
 
   const parts = text.split(/\s+/);
-  if (parts.length < 5) {
-    await reply(token, chatId, "Usage: /mint <slug> <chain: eth|robin|base> <qty> <time: now|date>");
+  if (parts.length < 3) {
+    await reply(token, chatId, "Usage: /mint <qty> <slug> [chain: eth|robin|base] [time: now|date]");
     return;
   }
-  const [, slug, chain, qtyStr, ...rest] = parts;
-  const fireTime = rest.join(" ");
+  const [, qtyStr, slug] = parts;
+  const chain = isChain(parts[3] ?? "") ? parts[3] : "robin";
+  const rest = isChain(parts[3] ?? "") ? parts.slice(4) : parts.slice(3);
+  const fireTime = rest.join(" ") || "now";
   const quantity = parseInt(qtyStr, 10);
 
   if (!Number.isInteger(quantity) || quantity < 1) {
