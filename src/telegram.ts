@@ -2,13 +2,13 @@
 // it talks to the Telegram HTTP API with the built-in fetch.
 //
 // Usage (chat message):
-//   /mint <nft-url> <chain> <qty> <time>
-//   /mint https://opensea.io/item/.../0xABC eth 4 now
-//   /mint https://opensea.io/items/foo/0xABC robin 2 August 29 at 2:00 AM GMT+7
+//   /mint <qty> <slug> [chain: eth|robin|base] [time: now|date]
+//   /mint 1 goobs-nft robin now
+//   /mint 2 cool-apes base August 29 at 2:00 AM GMT+7
+//   /cancel <slug>
 //
-// Chain accepts short aliases to avoid typos: eth | robin | base (full keys too).
 // Time is "now" or any date string parseFireTime understands.
-//
+// Scheduled times are shown in human-readable IST.
 // Mints run concurrently (fire-and-forget). Every job is persisted to
 // bot-state.json with the last seen Telegram update offset, so if the bot
 // crashes or is restarted it resumes unfinished jobs and never re-reads an
@@ -17,12 +17,13 @@
 import fs from "fs";
 import path from "path";
 import { log } from "./logger";
+import { parseFireTime, toIST } from "./time-format";
 import { runHeadless } from "./wizard";
 
 const API = "https://api.telegram.org/bot";
 const STATE_FILE = path.resolve(process.cwd(), "bot-state.json");
 
-type JobStatus = "pending" | "running" | "done" | "failed";
+type JobStatus = "pending" | "running" | "done" | "failed" | "cancelled";
 
 interface MintJob {
   updateId: number;
@@ -35,6 +36,7 @@ interface MintJob {
   quantity: number;
   fireTime: string;
   status: JobStatus;
+  warned?: boolean;
   result?: string;
 }
 
@@ -117,8 +119,26 @@ async function runJob(token: string, state: BotState, job: MintJob): Promise<voi
     saveState(state);
     return;
   }
+  if (job.status === "cancelled") return;
   job.status = "running";
   saveState(state);
+  if (!job.warned && job.fireTime.trim().toLowerCase() !== "now") {
+    try {
+      const fireDate = parseFireTime(job.fireTime);
+      const warnAt = new Date(fireDate.getTime() - 5 * 60 * 1000);
+      const waitMs = warnAt.getTime() - Date.now();
+      if (waitMs > 0) {
+        await new Promise((r) => setTimeout(r, waitMs));
+      }
+      if ((job as any).status === "cancelled") return;
+      const slug = job.slug ?? job.targetUrl;
+      await reply(token, job.chatId, `Reminder: mint for <a href="https://opensea.io/collection/${slug}">${slug}</a> fires in ~5 minutes.`);
+      job.warned = true;
+      saveState(state);
+    } catch (err: any) {
+      log("WARN", `Warning schedule failed: ${err?.message ?? err}`);
+    }
+  }
   try {
     await runHeadless({
       slug,
@@ -126,15 +146,56 @@ async function runJob(token: string, state: BotState, job: MintJob): Promise<voi
       quantity: job.quantity,
       fireTime: job.fireTime,
     });
+    if ((job as any).status === "cancelled") return;
     job.status = "done";
     job.result = "ok";
     await reply(token, job.chatId, "Mint complete.");
   } catch (err: any) {
+    if ((job as any).status === "cancelled") return;
     job.status = "failed";
     job.result = err?.message ?? String(err);
     await reply(token, job.chatId, job.result ?? String(err));
   }
   saveState(state);
+}
+
+async function handleCancel(
+  token: string,
+  state: BotState,
+  updateId: number,
+  chatId: number,
+  text: string
+): Promise<void> {
+  const parts = text.split(/\s+/);
+  if (parts.length < 2) {
+    await reply(token, chatId, "Usage: /cancel <slug>");
+    return;
+  }
+  const slug = parts[1]?.trim();
+  if (!slug) {
+    await reply(token, chatId, "Usage: /cancel <slug>");
+    return;
+  }
+
+  const cancelled: string[] = [];
+  for (const job of Object.values(state.jobs)) {
+    if (job.chatId !== chatId) continue;
+    const jobSlug = job.slug ?? job.targetUrl;
+    if (!jobSlug || jobSlug.toLowerCase() !== slug.toLowerCase()) continue;
+    if (job.status === "pending" || job.status === "running") {
+      job.status = "cancelled";
+      job.result = "Cancelled by user";
+      cancelled.push(`#${job.updateId}`);
+    }
+  }
+
+  if (cancelled.length === 0) {
+    await reply(token, chatId, `No active job found for "${slug}".`);
+    return;
+  }
+
+  saveState(state);
+  await reply(token, chatId, `Cancelled job(s) ${cancelled.join(", ")} for "${slug}".`);
 }
 
 async function handleMint(
@@ -177,10 +238,19 @@ async function handleMint(
   saveState(state);
 
   const slugLink = `<a href="https://opensea.io/collection/${slug}">${slug}</a>`;
+  const timeLabel = fireTime.trim().toLowerCase() === "now"
+    ? ""
+    : (() => {
+        try {
+          return ` (time: ${toIST(parseFireTime(fireTime))})`;
+        } catch {
+          return ` (time: ${fireTime})`;
+        }
+      })();
   await reply(
     token,
     chatId,
-    `Minting ${quantity} ${slugLink} on ${chainName(chain)} (time: ${fireTime})...`,
+    `Minting ${quantity} ${slugLink} on ${chainName(chain)}${timeLabel}...`,
   );
   // Fire-and-forget: the loop keeps processing the next message immediately.
   void runJob(token, state, job);
@@ -225,7 +295,9 @@ export async function startBot(): Promise<void> {
         continue;
       }
 
-      if (msg.text.startsWith("/mint")) {
+      if (msg.text.startsWith("/cancel")) {
+        await handleCancel(token, state, u.update_id, chatId, msg.text);
+      } else if (msg.text.startsWith("/mint")) {
         await handleMint(token, state, u.update_id, chatId, msg.text);
       } else if (msg.text.startsWith("/start")) {
         await reply(token, chatId, "Send: /mint <url> <chain: eth|robin|base> <qty> <time: now|date>");
