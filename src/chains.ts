@@ -69,6 +69,20 @@ export const CHAINS: ChainProfile[] = [
       ],
     },
   },
+  {
+    key: "ink",
+    chainId: 57073,
+    name: "Ink",
+    explorer: "https://explorer.inkonchain.com",
+    nativeSymbol: "ETH",
+    rpc: {
+      alchemyHost: "ink-mainnet.g.alchemy.com",
+      public: [
+        "https://rpc-gelato.inkonchain.com",
+        "https://rpc-qnd.inkonchain.com",
+      ],
+    },
+  },
 ];
 
 const DEFAULT_EXPLORER = "https://basescan.org";
